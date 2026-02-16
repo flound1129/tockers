@@ -3,6 +3,8 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from overlay.config import CLAUDE_MODEL
+
 
 @dataclass
 class EnemyUnit:
@@ -80,3 +82,29 @@ class StrategyEngine:
             "time_pts": time_pts,
             "total": component_pts + interest_pts + surviving_pts + time_pts,
         }
+
+    def ask_claude(self, game_state_summary: str, question: str) -> str:
+        """Ask Claude for complex strategy advice. Returns advice text."""
+        from anthropic import Anthropic
+        client = Anthropic()
+
+        system = (
+            "You are a TFT Tocker's Trials score optimizer. 30 PVE rounds. "
+            "The #1 rule: unused components on bench = 2,500 pts/component/round. "
+            "This massively dominates all other scoring. NEVER recommend building "
+            "items unless the player will lose a life without them. "
+            "Other scoring: surviving champ = 250/round, close call (1 alive) = "
+            "5,000/round, gold interest = 1,000/gold/round, star-up = 1,000 "
+            "one-time, time bonus ~2,750/round. Be concise."
+        )
+
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=300,
+            system=system,
+            messages=[{
+                "role": "user",
+                "content": f"Game state:\n{game_state_summary}\n\nQuestion: {question}",
+            }],
+        )
+        return response.content[0].text
