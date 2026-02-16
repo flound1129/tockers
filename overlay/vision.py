@@ -57,3 +57,60 @@ class TemplateMatcher:
             ):
                 kept.append(m)
         return kept
+
+
+@dataclass
+class GameState:
+    phase: str  # "planning", "combat", "augment", "carousel", "unknown"
+    my_board: list[Match]
+    my_bench: list[Match]
+    items_on_bench: list[Match]
+    shop: list[Match]
+    gold: int | None
+    level: int | None
+    augment_choices: list[Match]
+    round_number: int | None
+
+
+class GameStateReader:
+    def __init__(self, layout, champion_matcher, item_matcher,
+                 augment_matcher, digit_matcher):
+        self.layout = layout
+        self.champion_matcher = champion_matcher
+        self.item_matcher = item_matcher
+        self.augment_matcher = augment_matcher
+        self.digit_matcher = digit_matcher
+
+    def read(self, frame: np.ndarray) -> GameState:
+        phase = self._detect_phase(frame)
+        board_crop = self._crop(frame, self.layout.board)
+        bench_crop = self._crop(frame, self.layout.bench)
+        item_crop = self._crop(frame, self.layout.item_bench)
+        shop_crop = self._crop(frame, self.layout.shop)
+
+        state = GameState(
+            phase=phase,
+            my_board=self.champion_matcher.find_matches(board_crop),
+            my_bench=self.champion_matcher.find_matches(bench_crop),
+            items_on_bench=self.item_matcher.find_matches(item_crop),
+            shop=self.champion_matcher.find_matches(shop_crop),
+            gold=self._read_gold(frame),
+            level=None,
+            augment_choices=[],
+            round_number=None,
+        )
+
+        if phase == "augment":
+            aug_crop = self._crop(frame, self.layout.augment_select)
+            state.augment_choices = self.augment_matcher.find_matches(aug_crop)
+
+        return state
+
+    def _crop(self, frame: np.ndarray, region) -> np.ndarray:
+        return frame[region.y:region.y + region.h, region.x:region.x + region.w]
+
+    def _detect_phase(self, frame: np.ndarray) -> str:
+        return "planning"  # Placeholder
+
+    def _read_gold(self, frame: np.ndarray) -> int | None:
+        return None  # Placeholder
