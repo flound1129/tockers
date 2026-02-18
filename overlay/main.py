@@ -26,52 +26,118 @@ def create_matchers():
     return load_or_empty(item_dir), load_or_empty(augment_dir)
 
 
+def _round_str_to_int(round_str: str | None) -> int:
+    """Convert '2-5' to absolute round number 15. Returns 0 if unparseable."""
+    if not round_str or "-" not in round_str:
+        return 0
+    try:
+        stage, rnd = round_str.split("-")
+        return (int(stage) - 1) * 10 + int(rnd)
+    except ValueError:
+        return 0
+
+
 def vision_loop(capture, reader, engine, overlay, companion, stop_event):
     """Background thread: capture frames, read game state, update overlay."""
-    current_round = 0
-    while not stop_event.is_set():
-        frame = capture.grab()
-        if frame is None:
-            time.sleep(0.5)
-            continue
+    from overlay.stats import StatsRecorder
+    recorder = StatsRecorder(engine.conn)
+    prev_round: str | None = None
 
-        state = reader.read(frame)
-        num_components = len(state.items_on_bench)
-        gold = state.gold or 0
-        rounds_remaining = 30 - current_round
+    try:
+        while not stop_event.is_set():
+            frame = capture.grab()
+            if frame is None:
+                time.sleep(0.5)
+                continue
 
-        projection = engine.projected_score(
-            current_round=current_round,
-            num_components=num_components,
-            gold=gold,
-            surviving_units=len(state.my_board),
-        )
+            state = reader.read(frame)
+            num_components = len(state.items_on_bench)
+            gold = state.gold or 0
+            current_round = state.round_number  # e.g. "1-3" or None
 
-        enemy_name = ""
-        next_round = current_round + 1
-        if next_round <= 30:
-            info = engine.get_round_info(next_round)
-            if info:
-                enemy_name = (
-                    f"Stage {info['stage']}-{info['round_in_stage']} "
-                    f"({info['round_type']})"
+            # --- Round transition detection ---
+            if current_round is not None and current_round != prev_round:
+                if current_round == "1-1":
+                    # New run starting
+                    if recorder.active_run_id is not None:
+                        recorder.end_run("abandoned")
+                    recorder.start_run()
+                elif prev_round is not None:
+                    # Record the round that just ended
+                    recorder.record_round(
+                        round_number=prev_round,
+                        gold=state.gold,
+                        level=state.level,
+                        lives=state.lives,
+                        component_count=num_components,
+                        shop=state.shop or [],
+                    )
+
+                    # Check if round 30 just completed
+                    if prev_round == "3-10":
+                        recorder.end_run("completed")
+                        threading.Thread(
+                            target=engine.update_strategy, daemon=True
+                        ).start()
+
+                prev_round = current_round
+
+            # Check for elimination (lives hit 0)
+            if state.lives == 0 and recorder.active_run_id is not None:
+                recorder.record_round(
+                    round_number=current_round or prev_round or "unknown",
+                    gold=state.gold,
+                    level=state.level,
+                    lives=0,
+                    component_count=num_components,
+                    shop=state.shop or [],
                 )
+                recorder.end_run("eliminated")
+                threading.Thread(
+                    target=engine.update_strategy, daemon=True
+                ).start()
+                prev_round = None
 
-        companion.update_game_state(state, projected_score=projection["total"])
+            # --- Overlay update ---
+            abs_round = _round_str_to_int(current_round)
+            rounds_remaining = max(0, 30 - abs_round)
 
-        overlay.update_signal.emit({
-            "score": projection["total"],
-            "components": num_components,
-            "component_value": engine.component_score(
-                num_components, rounds_remaining
-            ),
-            "round": current_round,
-            "enemy_name": enemy_name,
-            "gold": gold,
-            "advice": "",
-        })
+            projection = engine.projected_score(
+                current_round=abs_round,
+                num_components=num_components,
+                gold=gold,
+                surviving_units=len(state.my_board),
+            )
 
-        time.sleep(1.0 / CAPTURE_FPS)
+            enemy_name = ""
+            next_round_num = abs_round + 1
+            if next_round_num <= 30:
+                info = engine.get_round_info(next_round_num)
+                if info:
+                    enemy_name = (
+                        f"Stage {info['stage']}-{info['round_in_stage']} "
+                        f"({info['round_type']})"
+                    )
+
+            companion.update_game_state(state, projected_score=projection["total"])
+
+            overlay.update_signal.emit({
+                "score": projection["total"],
+                "components": num_components,
+                "component_value": engine.component_score(
+                    num_components, rounds_remaining
+                ),
+                "round": abs_round,
+                "enemy_name": enemy_name,
+                "gold": gold,
+                "advice": "",
+            })
+
+            time.sleep(1.0 / CAPTURE_FPS)
+
+    finally:
+        if recorder.active_run_id is not None:
+            recorder.end_run("abandoned")
 
 
 def main():
