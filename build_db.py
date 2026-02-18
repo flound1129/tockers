@@ -23,7 +23,9 @@ def fetch_cdragon_data():
         print(f"Using cached Community Dragon data from {CDRAGON_CACHE}")
     else:
         print(f"Downloading Community Dragon data...")
-        urllib.request.urlretrieve(CDRAGON_URL, CDRAGON_CACHE)
+        req = urllib.request.Request(CDRAGON_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req) as resp, open(CDRAGON_CACHE, "wb") as f:
+            f.write(resp.read())
         print(f"Saved to {CDRAGON_CACHE}")
 
     with open(CDRAGON_CACHE, "r") as f:
