@@ -62,6 +62,7 @@ class CompanionWindow(QWidget):
         self._input_field = QLineEdit()
         self._input_field.setPlaceholderText("Ask a strategy question...")
         self._send_button = QPushButton("Send \u23ce")
+        self._send_button.setEnabled(False)
         self._send_button.clicked.connect(self._on_send)
         self._input_field.returnPressed.connect(self._on_send)
         layout.addWidget(self._input_field, stretch=4)
