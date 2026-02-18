@@ -4,12 +4,13 @@ Download champion, item, and augment reference icons from Community Dragon.
 These are used by the vision engine for template matching.
 """
 import json
+import tempfile
 import urllib.request
 import sys
 from pathlib import Path
 
 CDN_BASE = "https://raw.communitydragon.org/latest/game/"
-CDRAGON_CACHE = Path("/tmp/cdragon_tft.json")
+CDRAGON_CACHE = Path(tempfile.gettempdir()) / "cdragon_tft.json"
 REFERENCES_DIR = Path(__file__).parent.parent / "references"
 
 
@@ -31,7 +32,7 @@ def download(url: str, dest: Path) -> bool:
 
 
 def main():
-    with open(CDRAGON_CACHE) as f:
+    with open(CDRAGON_CACHE, encoding="utf-8") as f:
         data = json.load(f)
 
     set_data = data["sets"]["16"]
