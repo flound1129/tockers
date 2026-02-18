@@ -44,6 +44,29 @@ def create_schema(conn):
         DROP TABLE IF EXISTS tocker_rounds;
         DROP TABLE IF EXISTS enemy_boards;
         DROP TABLE IF EXISTS enemy_units;
+        DROP TABLE IF EXISTS run_rounds;
+        DROP TABLE IF EXISTS runs;
+
+        CREATE TABLE runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT,
+            ended_at TEXT,
+            rounds_completed INTEGER DEFAULT 0,
+            end_reason TEXT
+        );
+
+        CREATE TABLE run_rounds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER REFERENCES runs(id),
+            round_number TEXT,
+            gold INTEGER,
+            level INTEGER,
+            lives INTEGER,
+            component_count INTEGER,
+            shop TEXT,
+            items_built INTEGER,
+            life_lost INTEGER
+        );
 
         CREATE TABLE scoring_rules (
             name TEXT PRIMARY KEY,

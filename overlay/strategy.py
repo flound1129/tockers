@@ -6,6 +6,19 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from overlay.config import CLAUDE_MODEL
+from overlay.stats import ensure_stats_tables
+
+_STRATEGY_FILE = Path(__file__).parent.parent / "docs" / "strategy.md"
+
+
+def _load_strategy() -> str:
+    try:
+        return _STRATEGY_FILE.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+
+_STRATEGY = _load_strategy()
 
 
 @dataclass
@@ -24,6 +37,7 @@ class StrategyEngine:
     def __init__(self, db_path: str | Path):
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
+        ensure_stats_tables(self.conn)
 
     def component_score(self, num_components: int, rounds_remaining: int) -> int:
         return num_components * 2500 * rounds_remaining
@@ -90,14 +104,8 @@ class StrategyEngine:
         """Ask Claude for complex strategy advice. Returns advice text."""
         client = Anthropic()
 
-        system = (
-            "You are a TFT Tocker's Trials score optimizer. 30 PVE rounds. "
-            "The #1 rule: unused components on bench = 2,500 pts/component/round. "
-            "This massively dominates all other scoring. NEVER recommend building "
-            "items unless the player will lose a life without them. "
-            "Other scoring: surviving champ = 250/round, close call (1 alive) = "
-            "5,000/round, gold interest = 1,000/gold/round, star-up = 1,000 "
-            "one-time, time bonus ~2,750/round. Be concise."
+        system = _STRATEGY or (
+            "You are a TFT Tocker's Trials score optimizer. Be concise."
         )
 
         new_message = {
