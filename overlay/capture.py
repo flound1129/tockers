@@ -4,8 +4,10 @@ import numpy as np
 class ScreenCapture:
     """Captures game frames. Windows-only (uses DXcam)."""
 
-    def __init__(self, target_fps: int = 1):
+    def __init__(self, target_fps: int = 1,
+                 game_resolution: tuple[int, int] = (2560, 1440)):
         self.target_fps = target_fps
+        self.game_w, self.game_h = game_resolution
         self._camera = None
 
     def start(self):
@@ -20,7 +22,17 @@ class ScreenCapture:
     def grab(self) -> np.ndarray | None:
         if self._camera is None:
             raise RuntimeError("Call start() first")
-        return self._camera.grab()
+        frame = self._camera.grab()
+        if frame is None:
+            return None
+        h, w = frame.shape[:2]
+        if w > self.game_w:
+            x_off = (w - self.game_w) // 2
+            frame = frame[:, x_off:x_off + self.game_w]
+        if h > self.game_h:
+            y_off = (h - self.game_h) // 2
+            frame = frame[y_off:y_off + self.game_h, :]
+        return frame
 
     def stop(self):
         if self._camera is not None:
