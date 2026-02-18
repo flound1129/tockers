@@ -107,7 +107,11 @@ class CompanionWindow(QWidget):
         text = self._input_field.text().strip()
         if not text:
             return
+        if self._worker is not None and self._worker.isRunning():
+            return
         self._input_field.clear()
+        self._send_button.setEnabled(False)
+        self._input_field.setEnabled(False)
         self._append_message("You", text)
         self._append_message("AI", "thinking...")
         self._current_game_state_text = self._info_label.text()
@@ -133,19 +137,23 @@ class CompanionWindow(QWidget):
 
     @pyqtSlot(str, str)
     def _on_ai_response(self, response: str, question: str):
+        self._send_button.setEnabled(True)
+        self._input_field.setEnabled(True)
         text = self._chat_display.toPlainText()
         text = text.replace("[AI]  thinking...\n\n", "").replace("[AI]  thinking...\n", "")
         self._chat_display.setPlainText(text)
         self._append_message("AI", response)
         self._history.append({
             "role": "user",
-            "content": f"Game state:\n{self._current_game_state_text}\n\nQuestion: {question}",
+            "content": f"Game state:\n{self._worker.game_state_text}\n\nQuestion: {question}",
         })
         self._history.append({"role": "assistant", "content": response})
         self._history = self._history[-20:]
 
     @pyqtSlot(str)
     def _on_ai_error(self, error: str):
+        self._send_button.setEnabled(True)
+        self._input_field.setEnabled(True)
         text = self._chat_display.toPlainText()
         text = text.replace("[AI]  thinking...\n\n", "").replace("[AI]  thinking...\n", "")
         self._chat_display.setPlainText(text)
