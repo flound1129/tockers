@@ -2,10 +2,32 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QLabel, QFrame,
 )
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread, Qt
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import QFont
+
+
+class _AiWorker(QThread):
+    finished = Signal(str, str)  # (response_text, original_question)
+    error = Signal(str)
+
+    def __init__(self, engine, game_state_text: str, question: str,
+                 history: list[dict]):
+        super().__init__()
+        self.engine = engine
+        self.game_state_text = game_state_text
+        self.question = question
+        self.history = history
+
+    def run(self):
+        try:
+            response = self.engine.ask_claude(
+                self.game_state_text, self.question, history=self.history
+            )
+            self.finished.emit(str(response), self.question)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class CompanionWindow(QWidget):
@@ -14,9 +36,22 @@ class CompanionWindow(QWidget):
         self.engine = engine
         self._history: list[dict] = []
         self._current_game_state_text = ""
+        self._worker: _AiWorker | None = None
         self.setWindowTitle("Tocker's Companion")
         self.resize(400, 700)
         self._init_ui()
+
+    def closeEvent(self, event):
+        """Ensure the worker thread is stopped before the window is destroyed."""
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.quit()
+            self._worker.wait(2000)
+        super().closeEvent(event)
+
+    def __del__(self):
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.quit()
+            self._worker.wait(2000)
 
     def _init_ui(self):
         layout = QVBoxLayout()
@@ -84,8 +119,37 @@ class CompanionWindow(QWidget):
         sb.setValue(sb.maximum())
 
     def _start_ai_request(self, question: str):
-        # Implemented in Task 5
-        pass
+        self._worker = _AiWorker(
+            self.engine,
+            self._current_game_state_text,
+            question,
+            list(self._history),
+        )
+        self._worker.finished.connect(self._on_ai_response,
+                                      Qt.ConnectionType.QueuedConnection)
+        self._worker.error.connect(self._on_ai_error,
+                                   Qt.ConnectionType.QueuedConnection)
+        self._worker.start()
+
+    @pyqtSlot(str, str)
+    def _on_ai_response(self, response: str, question: str):
+        text = self._chat_display.toPlainText()
+        text = text.replace("[AI]  thinking...\n\n", "").replace("[AI]  thinking...\n", "")
+        self._chat_display.setPlainText(text)
+        self._append_message("AI", response)
+        self._history.append({
+            "role": "user",
+            "content": f"Game state:\n{self._current_game_state_text}\n\nQuestion: {question}",
+        })
+        self._history.append({"role": "assistant", "content": response})
+        self._history = self._history[-20:]
+
+    @pyqtSlot(str)
+    def _on_ai_error(self, error: str):
+        text = self._chat_display.toPlainText()
+        text = text.replace("[AI]  thinking...\n\n", "").replace("[AI]  thinking...\n", "")
+        self._chat_display.setPlainText(text)
+        self._append_message("AI", f"Error: {error}")
 
     def update_game_state(self, state, projected_score: int = 0):
         """Refresh the game info panel. Safe to call from any thread via signal."""

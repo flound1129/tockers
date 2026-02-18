@@ -70,3 +70,16 @@ def test_chat_shows_thinking_indicator(app):
     window._input_field.setText("Any advice?")
     window._on_send()
     assert "thinking" in window._chat_display.toPlainText().lower()
+
+
+def test_chat_replaces_thinking_with_response(app):
+    mock_engine = MagicMock()
+    mock_engine.ask_claude.return_value = "Hold your components."
+    window = CompanionWindow(engine=mock_engine)
+    window._input_field.setText("Should I build?")
+    window._on_send()
+    # Simulate worker finishing synchronously
+    window._on_ai_response("Hold your components.", "Should I build?")
+    text = window._chat_display.toPlainText()
+    assert "Hold your components." in text
+    assert "thinking" not in text.lower()
