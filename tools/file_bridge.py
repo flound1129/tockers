@@ -133,6 +133,7 @@ def main():
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.settimeout(1.0)  # Allow Ctrl+C to interrupt on Windows
     server.bind((args.host, args.port))
     server.listen(5)
 
@@ -154,7 +155,10 @@ def main():
 
     try:
         while True:
-            conn, addr = server.accept()
+            try:
+                conn, addr = server.accept()
+            except socket.timeout:
+                continue
             thread = threading.Thread(target=handle_client, args=(conn, addr),
                                      daemon=True)
             thread.start()
