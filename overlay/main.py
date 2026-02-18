@@ -50,6 +50,7 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
                 time.sleep(0.5)
                 continue
 
+            companion.set_frame(frame)
             state = reader.read(frame)
             num_components = len(state.items_on_bench)
             gold = state.gold or 0
@@ -166,7 +167,7 @@ def main():
     from overlay.companion import CompanionWindow
     overlay = OverlayWindow()
     overlay.show()
-    companion = CompanionWindow(engine=engine)
+    companion = CompanionWindow(engine=engine, layout=layout)
     companion.show()
 
     stop_event = threading.Event()

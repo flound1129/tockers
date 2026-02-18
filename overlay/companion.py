@@ -1,3 +1,10 @@
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytesseract
+from difflib import SequenceMatcher, get_close_matches
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QLabel, QFrame,
@@ -6,6 +13,8 @@ from PyQt6.QtCore import QThread, Qt
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import QFont
+
+from overlay.vision import _load_champion_names
 
 
 class _AiWorker(QThread):
@@ -31,12 +40,15 @@ class _AiWorker(QThread):
 
 
 class CompanionWindow(QWidget):
-    def __init__(self, engine, parent=None):
+    def __init__(self, engine, layout=None, parent=None):
         super().__init__(parent)
         self.engine = engine
+        self._layout = layout
         self._history: list[dict] = []
         self._current_game_state_text = ""
         self._worker: _AiWorker | None = None
+        self._last_frame: np.ndarray | None = None
+        self._champ_names: list[str] = _load_champion_names()
         self.setWindowTitle("Tocker's Companion")
         self.resize(400, 700)
         self._init_ui()
@@ -99,8 +111,11 @@ class CompanionWindow(QWidget):
         self._send_button = QPushButton("Send \u23ce")
         self._send_button.clicked.connect(self._on_send)
         self._input_field.returnPressed.connect(self._on_send)
+        self._debug_button = QPushButton("Debug Shop")
+        self._debug_button.clicked.connect(self._on_debug_shop)
         layout.addWidget(self._input_field, stretch=4)
         layout.addWidget(self._send_button, stretch=1)
+        layout.addWidget(self._debug_button, stretch=1)
         return frame
 
     def _on_send(self):
@@ -158,6 +173,73 @@ class CompanionWindow(QWidget):
         text = text.replace("[AI]  thinking...\n\n", "").replace("[AI]  thinking...\n", "")
         self._chat_display.setPlainText(text)
         self._append_message("AI", f"Error: {error}")
+
+    def set_frame(self, frame: np.ndarray) -> None:
+        """Store the latest captured frame for debug use."""
+        self._last_frame = frame
+
+    def _on_debug_shop(self):
+        if self._last_frame is None or self._layout is None:
+            self._append_message("Debug", "No frame captured yet.")
+            return
+
+        frame = self._last_frame
+        out_dir = Path(__file__).parent.parent / "debug_crops"
+        out_dir.mkdir(exist_ok=True)
+
+        self._append_message("Debug", f"Frame: {frame.shape[1]}x{frame.shape[0]}")
+
+        for i, region in enumerate(self._layout.shop_card_names):
+            crop = frame[region.y:region.y + region.h,
+                         region.x:region.x + region.w]
+            cv2.imwrite(str(out_dir / f"shop_slot_{i}.png"), crop)
+
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            if gray.mean() < 15:
+                self._append_message("Debug",
+                    f"Slot {i}: EMPTY (brightness {gray.mean():.0f})")
+                continue
+
+            # Adaptive pass (scale 4)
+            scaled_a = cv2.resize(gray, None, fx=4, fy=4,
+                                  interpolation=cv2.INTER_CUBIC)
+            proc_a = cv2.adaptiveThreshold(
+                scaled_a, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY, 31, -10)
+            text_a = pytesseract.image_to_string(
+                proc_a, config="--psm 11").strip()
+            text_a = text_a.split("\n")[0].strip() if text_a else ""
+            cv2.imwrite(str(out_dir / f"shop_slot_{i}_adaptive.png"), proc_a)
+
+            # OTSU pass (scale 3)
+            scaled_o = cv2.resize(gray, None, fx=3, fy=3,
+                                  interpolation=cv2.INTER_CUBIC)
+            _, proc_o = cv2.threshold(
+                scaled_o, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            text_o = pytesseract.image_to_string(
+                proc_o, config="--psm 11").strip()
+            text_o = text_o.split("\n")[0].strip() if text_o else ""
+            cv2.imwrite(str(out_dir / f"shop_slot_{i}_otsu.png"), proc_o)
+
+            # Fuzzy match
+            best_name, best_ratio = None, 0.0
+            for raw in [text_a, text_o]:
+                if not raw:
+                    continue
+                close = get_close_matches(
+                    raw, self._champ_names, n=1, cutoff=0.3)
+                if close:
+                    ratio = SequenceMatcher(
+                        None, raw.lower(), close[0].lower()).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_name = close[0]
+
+            self._append_message("Debug",
+                f"Slot {i}: adap='{text_a}' otsu='{text_o}' "
+                f"-> {best_name} ({best_ratio:.2f})")
+
+        self._append_message("Debug", f"Crops saved to {out_dir}")
 
     def update_game_state(self, state, projected_score: int = 0):
         """Refresh the game info panel. Safe to call from any thread via signal."""
