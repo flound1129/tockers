@@ -39,7 +39,7 @@ class OverlayWindow(QWidget):
             layout.addWidget(lbl)
 
         self.setLayout(layout)
-        self.move(3840 - 500, 50)
+        self.move(2560 - 460, 50)
         self.resize(450, 300)
 
     def _make_label(self, font, text):

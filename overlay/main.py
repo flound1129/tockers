@@ -10,10 +10,8 @@ from overlay.strategy import StrategyEngine
 
 
 def create_matchers():
-    champ_dir = REFERENCES_DIR / "champions"
     item_dir = REFERENCES_DIR / "items"
     augment_dir = REFERENCES_DIR / "augments"
-    digit_dir = REFERENCES_DIR / "digits"
 
     def load_or_empty(d):
         if d.exists() and any(d.glob("*.png")):
@@ -22,11 +20,10 @@ def create_matchers():
         m.templates = {}
         return m
 
-    return (load_or_empty(champ_dir), load_or_empty(item_dir),
-            load_or_empty(augment_dir), load_or_empty(digit_dir))
+    return load_or_empty(item_dir), load_or_empty(augment_dir)
 
 
-def vision_loop(capture, reader, engine, overlay, stop_event):
+def vision_loop(capture, reader, engine, overlay, companion, stop_event):
     """Background thread: capture frames, read game state, update overlay."""
     current_round = 0
     while not stop_event.is_set():
@@ -57,6 +54,8 @@ def vision_loop(capture, reader, engine, overlay, stop_event):
                     f"({info['round_type']})"
                 )
 
+        companion.update_game_state(state, projected_score=projection["total"])
+
         overlay.update_signal.emit({
             "score": projection["total"],
             "components": num_components,
@@ -84,21 +83,24 @@ def main():
 
     app = QApplication(sys.argv)
     layout = TFTLayout()
-    champ_m, item_m, aug_m, digit_m = create_matchers()
-    reader = GameStateReader(layout, champ_m, item_m, aug_m, digit_m)
+    item_m, aug_m = create_matchers()
+    reader = GameStateReader(layout, item_matcher=item_m, augment_matcher=aug_m)
     engine = StrategyEngine(DB_PATH)
 
     capture = MockCapture(mock_image) if use_mock else ScreenCapture(CAPTURE_FPS)
     capture.start()
 
     from overlay.ui import OverlayWindow
+    from overlay.companion import CompanionWindow
     overlay = OverlayWindow()
     overlay.show()
+    companion = CompanionWindow(engine=engine)
+    companion.show()
 
     stop_event = threading.Event()
     vision_thread = threading.Thread(
         target=vision_loop,
-        args=(capture, reader, engine, overlay, stop_event),
+        args=(capture, reader, engine, overlay, companion, stop_event),
         daemon=True,
     )
     vision_thread.start()
