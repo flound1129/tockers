@@ -30,3 +30,22 @@ def test_companion_internals(app):
     assert isinstance(window._send_button, QPushButton)
     assert window._history == []
     assert window._current_game_state_text == ""
+
+
+def test_game_info_updates(app):
+    from overlay.vision import GameState
+    window = CompanionWindow(engine=MagicMock())
+    state = GameState(
+        phase="planning",
+        round_number="2-5",
+        gold=8,
+        level=5,
+        lives=3,
+        shop=["Kog'Maw", "", "Illaoi", "", ""],
+        items_on_bench=[],
+    )
+    window.update_game_state(state, projected_score=142300)
+    text = window._info_label.text()
+    assert "2-5" in text
+    assert "8" in text
+    assert "142" in text

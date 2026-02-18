@@ -71,3 +71,29 @@ class CompanionWindow(QWidget):
 
     def _on_send(self):
         pass
+
+    def update_game_state(self, state, projected_score: int = 0):
+        """Refresh the game info panel. Safe to call from any thread via signal."""
+        shop_names = [s for s in (state.shop or []) if s]
+        items_count = len(state.items_on_bench)
+        items_value = items_count * 2500 * max(0, 30 - self._round_to_int(state.round_number))
+        lines = [
+            f"Round: {state.round_number or '--'}  "
+            f"Gold: {state.gold or '--'}  "
+            f"Level: {state.level or '--'}  "
+            f"Lives: {'♥' * (state.lives or 0)}",
+            f"Shop: {', '.join(shop_names) or '—'}",
+            f"Items on bench: {items_count}  (+{items_value:,} pts)",
+            f"Projected score: {projected_score:,}",
+        ]
+        self._info_label.setText("\n".join(lines))
+
+    def _round_to_int(self, round_str: str | None) -> int:
+        """Convert '2-5' to absolute round number (15)."""
+        if not round_str or "-" not in round_str:
+            return 0
+        try:
+            stage, rnd = round_str.split("-")
+            return (int(stage) - 1) * 10 + int(rnd)
+        except ValueError:
+            return 0
