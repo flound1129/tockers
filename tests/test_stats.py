@@ -91,3 +91,14 @@ def test_record_round_no_active_run_is_noop(conn):
                      component_count=5, shop=[])
     rows = conn.execute("SELECT * FROM run_rounds").fetchall()
     assert len(rows) == 0
+
+
+def test_start_run_auto_closes_previous(conn):
+    rec = StatsRecorder(conn)
+    rec.start_run()
+    first_id = rec.active_run_id
+    rec.start_run()  # auto-closes first run as abandoned
+    row = conn.execute("SELECT end_reason FROM runs WHERE id = ?",
+                       (first_id,)).fetchone()
+    assert row["end_reason"] == "abandoned"
+    assert rec.active_run_id != first_id

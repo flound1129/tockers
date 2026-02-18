@@ -198,6 +198,8 @@ class StrategyEngine:
             }],
         )
         if response.stop_reason == "max_tokens":
+            import logging
+            logging.warning("update_strategy: Claude response truncated at max_tokens; strategy.md not updated")
             return
         new_strategy = response.content[0].text
         _STRATEGY_FILE.write_text(new_strategy, encoding="utf-8")
