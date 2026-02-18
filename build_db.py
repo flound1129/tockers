@@ -30,7 +30,7 @@ def fetch_cdragon_data():
             f.write(resp.read())
         print(f"Saved to {CDRAGON_CACHE}")
 
-    with open(CDRAGON_CACHE, "r") as f:
+    with open(CDRAGON_CACHE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
