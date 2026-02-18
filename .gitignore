@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 references/**/*.png
 .env
+debug_crops/
