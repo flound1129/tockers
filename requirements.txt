@@ -3,5 +3,6 @@ numpy>=1.24
 PyQt6>=6.6
 anthropic>=0.40
 pytesseract>=0.3
+python-dotenv>=1.0
 imagecodecs>=2023.1
 dxcam>=0.0.5  # Windows only — screen capture via DXGI

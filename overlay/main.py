@@ -3,6 +3,9 @@ import time
 import threading
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from overlay.config import TFTLayout, CAPTURE_FPS, REFERENCES_DIR, DB_PATH
 from overlay.capture import ScreenCapture, MockCapture
 from overlay.vision import TemplateMatcher, GameStateReader
