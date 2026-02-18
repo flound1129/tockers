@@ -21,6 +21,11 @@ def _load_strategy() -> str:
 _STRATEGY = _load_strategy()
 
 
+def reload_strategy() -> None:
+    global _STRATEGY
+    _STRATEGY = _load_strategy()
+
+
 @dataclass
 class EnemyUnit:
     character: str
@@ -124,3 +129,75 @@ class StrategyEngine:
         if response.stop_reason == "max_tokens":
             text += " [response truncated]"
         return text
+
+    def update_strategy(self) -> None:
+        """Query recent runs, ask Claude to refine docs/strategy.md, reload in memory."""
+        import overlay.strategy as _self_module
+
+        runs = self.conn.execute("""
+            SELECT id, started_at, rounds_completed, end_reason
+            FROM runs
+            WHERE end_reason != 'abandoned'
+            ORDER BY id DESC LIMIT 20
+        """).fetchall()
+
+        if not runs:
+            return
+
+        lines = ["# Run History Summary\n"]
+        for run in runs:
+            lines.append(
+                f"## Run {run['id']} ({run['end_reason']}, "
+                f"{run['rounds_completed']} rounds)"
+            )
+            lines.append(
+                "| Round | Gold | Level | Lives | Components | "
+                "Items Built | Life Lost |"
+            )
+            lines.append(
+                "|-------|------|-------|-------|------------|"
+                "-------------|-----------|"
+            )
+            rounds = self.conn.execute("""
+                SELECT round_number, gold, level, lives,
+                       component_count, items_built, life_lost
+                FROM run_rounds WHERE run_id = ? ORDER BY id
+            """, (run["id"],)).fetchall()
+            for r in rounds:
+                lines.append(
+                    f"| {r['round_number']} | {r['gold']} | {r['level']} "
+                    f"| {r['lives']} | {r['component_count']} "
+                    f"| {r['items_built']} | {r['life_lost']} |"
+                )
+            lines.append("")
+
+        run_summary = "\n".join(lines)
+        current_strategy = (
+            _STRATEGY_FILE.read_text(encoding="utf-8")
+            if _STRATEGY_FILE.exists() else ""
+        )
+
+        client = Anthropic()
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2000,
+            system=(
+                "You are a TFT Tocker's Trials strategy optimizer. "
+                "Analyze the run history and rewrite the strategy guide to "
+                "reflect findings. Keep the same markdown format. "
+                "Be concise and fact-driven. Only update sections where the "
+                "data shows clear patterns."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Current strategy guide:\n\n{current_strategy}\n\n"
+                    f"Run history:\n\n{run_summary}\n\n"
+                    "Rewrite the strategy guide incorporating findings from "
+                    "the run history."
+                ),
+            }],
+        )
+        new_strategy = response.content[0].text
+        _STRATEGY_FILE.write_text(new_strategy, encoding="utf-8")
+        _self_module._STRATEGY = new_strategy
