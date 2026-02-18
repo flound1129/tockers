@@ -1,11 +1,19 @@
 import re
 import sqlite3
+import sys
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher, get_close_matches
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pytesseract
+
+# On Windows, Tesseract is not on PATH by default
+if sys.platform == "win32":
+    _win_tesseract = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    if _win_tesseract.exists():
+        pytesseract.pytesseract.tesseract_cmd = str(_win_tesseract)
 
 from .config import DB_PATH, ScreenRegion, TFTLayout
 
