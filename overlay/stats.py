@@ -41,6 +41,8 @@ class StatsRecorder:
         return self._run_id
 
     def start_run(self) -> None:
+        if self._run_id is not None:
+            self.end_run("abandoned")
         now = datetime.now(timezone.utc).isoformat()
         cur = self.conn.execute(
             "INSERT INTO runs (started_at, rounds_completed) VALUES (?, 0)",
@@ -63,9 +65,8 @@ class StatsRecorder:
              else component_count) - component_count,
         )
         life_lost = (
-            1 if self._prev_lives is not None
-            and lives is not None
-            and lives < self._prev_lives
+            max(0, self._prev_lives - lives)
+            if self._prev_lives is not None and lives is not None
             else 0
         )
         self.conn.execute(
@@ -83,7 +84,8 @@ class StatsRecorder:
         )
         self.conn.commit()
         self._prev_components = component_count
-        self._prev_lives = lives
+        if lives is not None:
+            self._prev_lives = lives
 
     def end_run(self, reason: str) -> None:
         if self._run_id is None:
