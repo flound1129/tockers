@@ -6,13 +6,15 @@ for Tocker's Trials score optimization.
 
 import json
 import sqlite3
+import tempfile
 import urllib.request
 import sys
 from pathlib import Path
 
 CDRAGON_URL = "https://raw.communitydragon.org/latest/cdragon/tft/en_us.json"
-CDRAGON_CACHE = Path("/tmp/cdragon_tft.json")
-MAP22_PATH = Path("/tmp/map22.bin.json")
+_TMPDIR = Path(tempfile.gettempdir())
+CDRAGON_CACHE = _TMPDIR / "cdragon_tft.json"
+MAP22_PATH = _TMPDIR / "map22.bin.json"
 DB_PATH = Path(__file__).parent / "tft.db"
 SET_NUMBER = "16"
 PVE_AUGMENT_LIST_KEY = "{8885b3bc}"  # Set16_PVEMODE_Items_Augments
