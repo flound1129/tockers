@@ -55,6 +55,20 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
             gold = state.gold or 0
             current_round = state.round_number  # e.g. "1-3" or None
 
+            # Detect run completion when round 3-10 ends and OCR loses the round display
+            if current_round is None and prev_round == "3-10" and recorder.active_run_id is not None:
+                recorder.record_round(
+                    round_number="3-10",
+                    gold=state.gold,
+                    level=state.level,
+                    lives=state.lives,
+                    component_count=num_components,
+                    shop=state.shop or [],
+                )
+                recorder.end_run("completed")
+                threading.Thread(target=engine.update_strategy, daemon=True).start()
+                prev_round = None
+
             # --- Round transition detection ---
             if current_round is not None and current_round != prev_round:
                 if current_round == "1-1":
@@ -82,21 +96,10 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
 
                 prev_round = current_round
 
-            # Check for elimination (lives hit 0)
-            if state.lives == 0 and recorder.active_run_id is not None:
-                recorder.record_round(
-                    round_number=current_round or prev_round or "unknown",
-                    gold=state.gold,
-                    level=state.level,
-                    lives=0,
-                    component_count=num_components,
-                    shop=state.shop or [],
-                )
-                recorder.end_run("eliminated")
-                threading.Thread(
-                    target=engine.update_strategy, daemon=True
-                ).start()
-                prev_round = None
+            # Note: Elimination detection (lives reaching 0) is not currently
+            # implemented because _read_lives() returns None on failure and
+            # only validates values 1-3. Eliminated runs will be closed as
+            # "abandoned" via the finally block when the overlay is restarted.
 
             # --- Overlay update ---
             abs_round = _round_str_to_int(current_round)
