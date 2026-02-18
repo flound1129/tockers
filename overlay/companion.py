@@ -241,6 +241,29 @@ class CompanionWindow(QWidget):
 
         self._append_message("Debug", f"Crops saved to {out_dir}")
 
+        # Push crops to git so they can be pulled from the dev machine
+        import subprocess
+        try:
+            repo_root = Path(__file__).parent.parent
+            subprocess.run(
+                ["git", "add", "debug_crops/"],
+                cwd=repo_root, check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "debug: shop OCR crops"],
+                cwd=repo_root, check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=repo_root, check=True,
+                capture_output=True,
+            )
+            self._append_message("Debug", "Pushed to git.")
+        except subprocess.CalledProcessError as e:
+            self._append_message("Debug", f"Git push failed: {e.stderr.decode()}")
+
     def update_game_state(self, state, projected_score: int = 0):
         """Refresh the game info panel. Safe to call from any thread via signal."""
         shop_names = [s for s in (state.shop or []) if s]
