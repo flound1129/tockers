@@ -40,7 +40,7 @@ class EnemyUnit:
 
 class StrategyEngine:
     def __init__(self, db_path: str | Path):
-        self.conn = sqlite3.connect(str(db_path))
+        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         ensure_stats_tables(self.conn)
 
