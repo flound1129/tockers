@@ -3,6 +3,8 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from anthropic import Anthropic
+
 from overlay.config import CLAUDE_MODEL
 
 
@@ -86,7 +88,6 @@ class StrategyEngine:
     def ask_claude(self, game_state_summary: str, question: str,
                history: list[dict] | None = None) -> str:
         """Ask Claude for complex strategy advice. Returns advice text."""
-        from anthropic import Anthropic
         client = Anthropic()
 
         system = (
@@ -107,8 +108,11 @@ class StrategyEngine:
 
         response = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=300,
+            max_tokens=600,
             system=system,
             messages=messages,
         )
-        return response.content[0].text
+        text = response.content[0].text
+        if response.stop_reason == "max_tokens":
+            text += " [response truncated]"
+        return text

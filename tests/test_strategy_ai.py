@@ -3,13 +3,14 @@ from overlay.strategy import StrategyEngine
 
 
 def test_ask_claude_sends_correct_prompt():
-    engine = StrategyEngine("tft.db")
+    engine = StrategyEngine(":memory:")
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text="Save your components.")]
+    mock_response.stop_reason = "end_turn"
     mock_client.messages.create.return_value = mock_response
 
-    with patch("anthropic.Anthropic", return_value=mock_client):
+    with patch("overlay.strategy.Anthropic", return_value=mock_client):
         result = engine.ask_claude("Round 10, 5 components", "Should I level?")
 
     assert result == "Save your components."
@@ -19,10 +20,11 @@ def test_ask_claude_sends_correct_prompt():
 
 
 def test_ask_claude_with_history():
-    engine = StrategyEngine("tft.db")
+    engine = StrategyEngine(":memory:")
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text="Still hold them.")]
+    mock_response.stop_reason = "end_turn"
     mock_client.messages.create.return_value = mock_response
 
     history = [
@@ -30,7 +32,7 @@ def test_ask_claude_with_history():
         {"role": "assistant", "content": "No, hold components."},
     ]
 
-    with patch("anthropic.Anthropic", return_value=mock_client):
+    with patch("overlay.strategy.Anthropic", return_value=mock_client):
         result = engine.ask_claude("Round 6, 5 components", "What about now?", history=history)
 
     assert result == "Still hold them."
