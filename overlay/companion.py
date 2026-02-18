@@ -62,7 +62,6 @@ class CompanionWindow(QWidget):
         self._input_field = QLineEdit()
         self._input_field.setPlaceholderText("Ask a strategy question...")
         self._send_button = QPushButton("Send \u23ce")
-        self._send_button.setEnabled(False)
         self._send_button.clicked.connect(self._on_send)
         self._input_field.returnPressed.connect(self._on_send)
         layout.addWidget(self._input_field, stretch=4)
@@ -70,6 +69,22 @@ class CompanionWindow(QWidget):
         return frame
 
     def _on_send(self):
+        text = self._input_field.text().strip()
+        if not text:
+            return
+        self._input_field.clear()
+        self._append_message("You", text)
+        self._append_message("AI", "thinking...")
+        self._current_game_state_text = self._info_label.text()
+        self._start_ai_request(text)
+
+    def _append_message(self, sender: str, text: str):
+        self._chat_display.append(f"[{sender}]  {text}\n")
+        sb = self._chat_display.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _start_ai_request(self, question: str):
+        # Implemented in Task 5
         pass
 
     def update_game_state(self, state, projected_score: int = 0):

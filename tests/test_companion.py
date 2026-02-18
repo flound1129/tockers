@@ -49,3 +49,24 @@ def test_game_info_updates(app):
     assert "2-5" in text
     assert "8" in text
     assert "142" in text
+
+
+def test_chat_appends_user_message(app):
+    window = CompanionWindow(engine=MagicMock())
+    window._input_field.setText("Should I level?")
+    window._on_send()
+    assert "Should I level?" in window._chat_display.toPlainText()
+
+
+def test_chat_clears_input_on_send(app):
+    window = CompanionWindow(engine=MagicMock())
+    window._input_field.setText("Should I level?")
+    window._on_send()
+    assert window._input_field.text() == ""
+
+
+def test_chat_shows_thinking_indicator(app):
+    window = CompanionWindow(engine=MagicMock())
+    window._input_field.setText("Any advice?")
+    window._on_send()
+    assert "thinking" in window._chat_display.toPlainText().lower()
