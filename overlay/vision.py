@@ -50,6 +50,8 @@ class TemplateMatcher:
             tmpl = self.templates.get(name)
             if tmpl is None:
                 continue
+            if tmpl.shape[0] > scene.shape[0] or tmpl.shape[1] > scene.shape[1]:
+                continue
             result = cv2.matchTemplate(scene, tmpl, cv2.TM_CCOEFF_NORMED)
             locations = np.where(result >= threshold)
             for y, x in zip(*locations):
