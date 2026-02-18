@@ -83,7 +83,8 @@ class StrategyEngine:
             "total": component_pts + interest_pts + surviving_pts + time_pts,
         }
 
-    def ask_claude(self, game_state_summary: str, question: str) -> str:
+    def ask_claude(self, game_state_summary: str, question: str,
+               history: list[dict] | None = None) -> str:
         """Ask Claude for complex strategy advice. Returns advice text."""
         from anthropic import Anthropic
         client = Anthropic()
@@ -98,13 +99,16 @@ class StrategyEngine:
             "one-time, time bonus ~2,750/round. Be concise."
         )
 
+        new_message = {
+            "role": "user",
+            "content": f"Game state:\n{game_state_summary}\n\nQuestion: {question}",
+        }
+        messages = list(history or []) + [new_message]
+
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=300,
             system=system,
-            messages=[{
-                "role": "user",
-                "content": f"Game state:\n{game_state_summary}\n\nQuestion: {question}",
-            }],
+            messages=messages,
         )
         return response.content[0].text
