@@ -1,6 +1,5 @@
 from unittest.mock import patch, MagicMock
-import sqlite3
-from overlay.stats import ensure_stats_tables, StatsRecorder
+from overlay.stats import StatsRecorder
 import overlay.strategy as strategy_module
 from overlay.strategy import StrategyEngine
 
@@ -50,7 +49,6 @@ def test_ask_claude_with_history():
 
 def _make_engine_with_runs():
     """Create an in-memory engine with two completed runs."""
-    from overlay.strategy import StrategyEngine
     engine = StrategyEngine(":memory:")
     # Seed two runs with round data
     rec = StatsRecorder(engine.conn)
@@ -87,7 +85,6 @@ def test_update_strategy_calls_claude_and_writes_file(tmp_path):
 
 
 def test_update_strategy_skips_if_no_runs():
-    from overlay.strategy import StrategyEngine
     engine = StrategyEngine(":memory:")
 
     with patch("overlay.strategy.Anthropic") as mock_cls:

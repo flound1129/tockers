@@ -132,12 +132,11 @@ class StrategyEngine:
 
     def update_strategy(self) -> None:
         """Query recent runs, ask Claude to refine docs/strategy.md, reload in memory."""
-        import overlay.strategy as _self_module
-
         runs = self.conn.execute("""
             SELECT id, started_at, rounds_completed, end_reason
             FROM runs
-            WHERE end_reason != 'abandoned'
+            WHERE end_reason IS NOT NULL
+              AND end_reason != 'abandoned'
             ORDER BY id DESC LIMIT 20
         """).fetchall()
 
@@ -198,6 +197,8 @@ class StrategyEngine:
                 ),
             }],
         )
+        if response.stop_reason == "max_tokens":
+            return
         new_strategy = response.content[0].text
         _STRATEGY_FILE.write_text(new_strategy, encoding="utf-8")
-        _self_module._STRATEGY = new_strategy
+        reload_strategy()
