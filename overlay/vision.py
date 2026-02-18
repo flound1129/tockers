@@ -1,7 +1,13 @@
-from dataclasses import dataclass
+import re
+import sqlite3
+from dataclasses import dataclass, field
+from difflib import SequenceMatcher, get_close_matches
 from pathlib import Path
+
 import cv2
 import numpy as np
+
+from .config import DB_PATH, ScreenRegion, TFTLayout
 
 
 @dataclass
@@ -59,58 +65,174 @@ class TemplateMatcher:
         return kept
 
 
+def _load_champion_names() -> list[str]:
+    """Load all champion names from the database for fuzzy matching."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT name FROM champions").fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+
+
+CHAMPION_NAMES = _load_champion_names()
+
+
+def _ocr_text(image: np.ndarray, scale: int = 4, method: str = "threshold",
+              threshold_val: int = 140, psm: int = 7, whitelist: str = "") -> str:
+    """Run Tesseract OCR on a BGR image with preprocessing."""
+    try:
+        import pytesseract
+    except ImportError:
+        return ""
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    scaled = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+    if method == "otsu":
+        _, proc = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    elif method == "adaptive":
+        proc = cv2.adaptiveThreshold(scaled, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                      cv2.THRESH_BINARY, 31, -10)
+    else:
+        _, proc = cv2.threshold(scaled, threshold_val, 255, cv2.THRESH_BINARY)
+
+    config = f"--psm {psm}"
+    if whitelist:
+        config += f" -c tessedit_char_whitelist={whitelist}"
+    return pytesseract.image_to_string(proc, config=config).strip()
+
+
+def _crop(frame: np.ndarray, region: ScreenRegion) -> np.ndarray:
+    return frame[region.y:region.y + region.h, region.x:region.x + region.w]
+
+
 @dataclass
 class GameState:
-    phase: str  # "planning", "combat", "augment", "carousel", "unknown"
-    my_board: list[Match]
-    my_bench: list[Match]
-    items_on_bench: list[Match]
-    shop: list[Match]
-    gold: int | None
-    level: int | None
-    augment_choices: list[Match]
-    round_number: int | None
+    phase: str = "planning"
+    my_board: list[Match] = field(default_factory=list)
+    my_bench: list[Match] = field(default_factory=list)
+    items_on_bench: list[Match] = field(default_factory=list)
+    shop: list[str] = field(default_factory=list)
+    gold: int | None = None
+    level: int | None = None
+    lives: int | None = None
+    augment_choices: list[Match] = field(default_factory=list)
+    round_number: str | None = None
 
 
 class GameStateReader:
-    def __init__(self, layout, champion_matcher, item_matcher,
-                 augment_matcher, digit_matcher):
+    def __init__(self, layout: TFTLayout,
+                 champion_matcher: TemplateMatcher | None = None,
+                 item_matcher: TemplateMatcher | None = None,
+                 augment_matcher: TemplateMatcher | None = None):
         self.layout = layout
         self.champion_matcher = champion_matcher
         self.item_matcher = item_matcher
         self.augment_matcher = augment_matcher
-        self.digit_matcher = digit_matcher
 
     def read(self, frame: np.ndarray) -> GameState:
-        phase = self._detect_phase(frame)
-        board_crop = self._crop(frame, self.layout.board)
-        bench_crop = self._crop(frame, self.layout.bench)
-        item_crop = self._crop(frame, self.layout.item_bench)
-        shop_crop = self._crop(frame, self.layout.shop)
-
         state = GameState(
-            phase=phase,
-            my_board=self.champion_matcher.find_matches(board_crop),
-            my_bench=self.champion_matcher.find_matches(bench_crop),
-            items_on_bench=self.item_matcher.find_matches(item_crop),
-            shop=self.champion_matcher.find_matches(shop_crop),
+            phase=self._detect_phase(frame),
+            round_number=self._read_round(frame),
             gold=self._read_gold(frame),
-            level=None,
-            augment_choices=[],
-            round_number=None,
+            lives=self._read_lives(frame),
+            level=self._read_level(frame),
+            shop=self._read_shop_names(frame),
         )
 
-        if phase == "augment":
-            aug_crop = self._crop(frame, self.layout.augment_select)
+        if self.item_matcher:
+            bench_crop = _crop(frame, self.layout.bench)
+            state.items_on_bench = self.item_matcher.find_matches(bench_crop)
+
+        if state.phase == "augment" and self.augment_matcher:
+            aug_crop = _crop(frame, self.layout.augment_select)
             state.augment_choices = self.augment_matcher.find_matches(aug_crop)
 
         return state
 
-    def _crop(self, frame: np.ndarray, region) -> np.ndarray:
-        return frame[region.y:region.y + region.h, region.x:region.x + region.w]
-
     def _detect_phase(self, frame: np.ndarray) -> str:
-        return "planning"  # Placeholder
+        return "planning"  # TODO: detect from UI elements
+
+    def _read_round(self, frame: np.ndarray) -> str | None:
+        crop = _crop(frame, self.layout.round_text)
+        text = _ocr_text(crop, scale=3, method="threshold",
+                         threshold_val=140, psm=7)
+        m = re.search(r"(\d+\s*-\s*\d+)", text)
+        if m:
+            return m.group(1).replace(" ", "")
+        return None
 
     def _read_gold(self, frame: np.ndarray) -> int | None:
-        return None  # Placeholder
+        crop = _crop(frame, self.layout.gold_text)
+        text = _ocr_text(crop, scale=5, method="threshold",
+                         threshold_val=140, psm=8,
+                         whitelist="0123456789")
+        digits = re.sub(r"\D", "", text)
+        return int(digits) if digits else None
+
+    def _read_lives(self, frame: np.ndarray) -> int | None:
+        crop = _crop(frame, self.layout.lives_text)
+        text = _ocr_text(crop, scale=5, method="threshold",
+                         threshold_val=140, psm=7,
+                         whitelist="0123456789")
+        digits = re.sub(r"\D", "", text)
+        if digits:
+            val = int(digits[0])
+            if 1 <= val <= 3:
+                return val
+        return None
+
+    def _read_level(self, frame: np.ndarray) -> int | None:
+        crop = _crop(frame, self.layout.level_text)
+        text = _ocr_text(crop, scale=4, method="adaptive", psm=7)
+        digits = re.findall(r"\d+", text)
+        if digits:
+            val = int(digits[-1])
+            if 1 <= val <= 10:
+                return val
+        return None
+
+    def _read_shop_names(self, frame: np.ndarray) -> list[str]:
+        """Read champion names from 5 shop card slots using multi-pass OCR."""
+        names = []
+        for card_region in self.layout.shop_card_names:
+            name = self._read_single_card(frame, card_region)
+            names.append(name or "")
+        return names
+
+    def _read_single_card(self, frame: np.ndarray, region: ScreenRegion) -> str | None:
+        """Read a single shop card name with adaptive + OTSU fallback."""
+        crop = _crop(frame, region)
+        if np.mean(crop) < 15:
+            return None
+
+        ocr_texts = []
+
+        # Method 1: adaptive threshold, scale 4, PSM 11 (best for Illaoi-type names)
+        text1 = _ocr_text(crop, scale=4, method="adaptive", psm=11)
+        first_line = text1.split("\n")[0].strip()
+        clean1 = re.sub(r"[^a-zA-Z\s']", "", first_line).strip()
+        if clean1:
+            ocr_texts.append(clean1)
+
+        # Method 2: OTSU threshold, scale 3, PSM 11 (best for Kog'Maw-type names)
+        text2 = _ocr_text(crop, scale=3, method="otsu", psm=11)
+        first_line2 = text2.split("\n")[0].strip()
+        clean2 = re.sub(r"[^a-zA-Z\s']", "", first_line2).strip()
+        if clean2:
+            ocr_texts.append(clean2)
+
+        # Pick the OCR text that gives the highest similarity to any champion
+        best_match = None
+        best_ratio = 0
+        for ocr in ocr_texts:
+            matches = get_close_matches(ocr, CHAMPION_NAMES, n=1, cutoff=0.3)
+            if matches:
+                ratio = SequenceMatcher(None, ocr.lower(), matches[0].lower()).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_match = matches[0]
+
+        return best_match
