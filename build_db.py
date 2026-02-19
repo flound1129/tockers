@@ -327,8 +327,8 @@ def insert_items(conn, items_data):
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 api_name,
-                item.get("name", "").strip(),
-                item.get("desc", "").strip(),
+                (item.get("name") or "").strip(),
+                (item.get("desc") or "").strip(),
                 is_component,
                 is_augment,
                 is_unique,
@@ -392,8 +392,8 @@ def insert_augments(conn, cdragon_items, map22_data):
                VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 api_name,
-                item.get("name", "").strip(),
-                item.get("desc", "").strip(),
+                (item.get("name") or "").strip(),
+                (item.get("desc") or "").strip(),
                 json.dumps(effects) if effects else None,
                 json.dumps(traits) if traits else None,
                 in_tockers,
