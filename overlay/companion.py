@@ -626,6 +626,11 @@ class CompanionWindow(QWidget):
         board_str = self._format_champions(state.my_board)
         bench_str = self._format_champions(state.my_bench)
         hearts = "\u2665" * (state.lives or 0)
+        augment_str = ""
+        if state.augment_choices:
+            aug_names = [m.name for m in state.augment_choices]
+            augment_str = ", ".join(aug_names)
+
         lines = [
             f"Round: {state.round_number or '--'}  "
             f"Gold: {state.gold or '--'}  "
@@ -637,6 +642,8 @@ class CompanionWindow(QWidget):
             f"Items on bench: {items_count}  (+{items_value:,} pts)",
             f"Projected score: {projected_score:,}",
         ]
+        if augment_str:
+            lines.append(f"Augments: {augment_str}")
         self._info_label.setText("\n".join(lines))
 
     def _round_to_int(self, round_str: str | None) -> int:

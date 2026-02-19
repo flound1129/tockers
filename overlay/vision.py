@@ -182,7 +182,7 @@ class GameStateReader:
             state.my_bench = self._detect_bench_champions(frame)
             state.my_board = self._detect_board_champions(frame)
 
-        if state.phase == "augment" and self.augment_matcher:
+        if state.round_number in ("1-5", "2-5", "3-5") and self.augment_matcher:
             aug_crop = _crop(frame, self.layout.augment_select)
             state.augment_choices = self.augment_matcher.find_matches(aug_crop)
 
