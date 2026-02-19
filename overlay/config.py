@@ -49,10 +49,10 @@ class TFTLayout:
         default_factory=lambda: ScreenRegion(345, 1000, 1635, 120)
     )
 
-    # Board hex grid parameters
-    board_hex_origin: tuple[int, int] = (600, 330)
+    # Board hex grid parameters (player side only — enemy data is in DB)
+    board_hex_origin: tuple[int, int] = (600, 760)
     board_hex_cols: int = 7
-    board_hex_rows: int = 4
+    board_hex_rows: int = 2
     board_hex_col_width: int = 194
     board_hex_row_height: int = 150
     board_hex_row_offset: int = 97  # odd-row horizontal offset
