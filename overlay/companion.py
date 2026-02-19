@@ -31,8 +31,8 @@ OCR_CONFIGS = {
     "shop_card_4": {"scale": 4, "method": "adaptive", "psm": 11},
 }
 
-# All calibratable region names, in display order
-REGION_NAMES = [
+# Built-in region names (always present), in display order
+BUILTIN_REGION_NAMES = [
     "round_text", "gold_text", "lives_text", "level_text",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
     "item_bench", "item_panel", "champion_bench", "score_display",
@@ -199,9 +199,11 @@ class CompanionWindow(QWidget):
         header.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
         v.addWidget(header)
 
-        # Region selector
+        # Region selector (built-in + any extra from calibration.json)
         self._region_combo = QComboBox()
-        self._region_combo.addItems(REGION_NAMES)
+        self._region_combo.addItems(BUILTIN_REGION_NAMES)
+        if self._layout and self._layout.extra_regions:
+            self._region_combo.addItems(sorted(self._layout.extra_regions.keys()))
         self._region_combo.currentTextChanged.connect(self._on_region_changed)
         v.addWidget(self._region_combo)
 
@@ -293,7 +295,9 @@ class CompanionWindow(QWidget):
         if name.startswith("shop_card_"):
             idx = int(name.split("_")[-1])
             return self._layout.shop_card_names[idx]
-        return getattr(self._layout, name, None)
+        if hasattr(self._layout, name) and name != "extra_regions":
+            return getattr(self._layout, name)
+        return self._layout.extra_regions.get(name)
 
     def _set_region(self, name: str, region: ScreenRegion):
         if self._layout is None:
@@ -301,8 +305,10 @@ class CompanionWindow(QWidget):
         if name.startswith("shop_card_"):
             idx = int(name.split("_")[-1])
             self._layout.shop_card_names[idx] = region
-        else:
+        elif hasattr(self._layout, name) and name != "extra_regions":
             setattr(self._layout, name, region)
+        else:
+            self._layout.extra_regions[name] = region
 
     def _on_region_changed(self, name: str):
         region = self._get_region(name)
