@@ -27,7 +27,9 @@ class TFTLayout:
     board: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
     item_bench: ScreenRegion = field(default_factory=lambda: ScreenRegion(345, 1165, 1635, 55))
     trait_panel: ScreenRegion = field(default_factory=lambda: ScreenRegion(1980, 1165, 300, 55))
-    top_dmg: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 750, 400, 60))
+    dmg_champ: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 750, 60, 60))
+    dmg_stars: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 810, 60, 20))
+    dmg_bar: ScreenRegion = field(default_factory=lambda: ScreenRegion(660, 770, 340, 20))
     score_display: ScreenRegion = field(default_factory=lambda: ScreenRegion(2276, 378, 214, 91))
     augment_select: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
 
@@ -36,6 +38,7 @@ class TFTLayout:
     gold_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(1895, 1190, 45, 23))
     lives_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(2355, 290, 65, 25))
     level_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(330, 1193, 210, 25))
+    rerolls_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(590, 1260, 60, 25))
 
     # Individual shop card name bars (5 slots, 180px to exclude cost icon)
     shop_card_names: list[ScreenRegion] = field(default_factory=lambda: [

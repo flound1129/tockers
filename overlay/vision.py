@@ -126,6 +126,15 @@ def _crop(frame: np.ndarray, region: ScreenRegion) -> np.ndarray:
 
 
 @dataclass
+class DamageBreakdown:
+    physical_pct: float = 0.0  # red pixels
+    magic_pct: float = 0.0     # blue pixels
+    true_pct: float = 0.0      # white pixels
+    champion: str | None = None
+    stars: int = 0
+
+
+@dataclass
 class GameState:
     phase: str = "planning"
     my_board: list[Match] = field(default_factory=list)
@@ -137,6 +146,8 @@ class GameState:
     lives: int | None = None
     augment_choices: list[Match] = field(default_factory=list)
     round_number: str | None = None
+    rerolls: int | None = None
+    top_damage: DamageBreakdown | None = None
 
 
 class GameStateReader:
@@ -156,6 +167,7 @@ class GameStateReader:
             gold=self._read_gold(frame),
             lives=self._read_lives(frame),
             level=self._read_level(frame),
+            rerolls=self._read_rerolls(frame),
             shop=self._read_shop_names(frame),
         )
 
@@ -170,6 +182,8 @@ class GameStateReader:
         if state.phase == "augment" and self.augment_matcher:
             aug_crop = _crop(frame, self.layout.augment_select)
             state.augment_choices = self.augment_matcher.find_matches(aug_crop)
+
+        state.top_damage = self._read_top_damage(frame)
 
         return state
 
@@ -212,6 +226,18 @@ class GameStateReader:
         if digits:
             val = int(digits[-1])
             if 1 <= val <= 10:
+                return val
+        return None
+
+    def _read_rerolls(self, frame: np.ndarray) -> int | None:
+        crop = _crop(frame, self.layout.rerolls_text)
+        text = _ocr_text(crop, scale=5, method="threshold",
+                         threshold_val=140, psm=8,
+                         whitelist="0123456789")
+        digits = re.sub(r"\D", "", text)
+        if digits:
+            val = int(digits)
+            if 0 <= val <= 99:
                 return val
         return None
 
@@ -335,3 +361,57 @@ class GameStateReader:
         elif total_pip_pixels > 5:
             return 1
         return 1  # Default to 1-star if champion is detected
+
+    def _read_top_damage(self, frame: np.ndarray) -> DamageBreakdown | None:
+        """Read the #1 damage dealer from three separate regions."""
+        bar_crop = _crop(frame, self.layout.dmg_bar)
+        if np.mean(bar_crop) < 10:
+            return None  # bar not visible
+
+        hsv = cv2.cvtColor(bar_crop, cv2.COLOR_BGR2HSV)
+
+        # Red (physical): H 0-10 or 170-180, S > 80, V > 80
+        red_lo = cv2.inRange(hsv, (0, 80, 80), (10, 255, 255))
+        red_hi = cv2.inRange(hsv, (170, 80, 80), (180, 255, 255))
+        red_px = cv2.countNonZero(red_lo) + cv2.countNonZero(red_hi)
+
+        # Blue (magic): H 100-130, S > 80, V > 80
+        blue_px = cv2.countNonZero(cv2.inRange(hsv, (100, 80, 80), (130, 255, 255)))
+
+        # White (true): S < 40, V > 200
+        white_px = cv2.countNonZero(cv2.inRange(hsv, (0, 0, 200), (180, 40, 255)))
+
+        total = red_px + blue_px + white_px
+        if total == 0:
+            return None
+
+        dmg = DamageBreakdown(
+            physical_pct=red_px / total,
+            magic_pct=blue_px / total,
+            true_pct=white_px / total,
+        )
+
+        # Identify champion from dmg_champ icon region
+        if self.champion_matcher and self.champion_matcher.templates:
+            champ_crop = _crop(frame, self.layout.dmg_champ)
+            matches = self.champion_matcher.find_matches(champ_crop, threshold=BOARD_MATCH_THRESHOLD)
+            if matches:
+                best = max(matches, key=lambda m: m.confidence)
+                dmg.champion = best.name
+
+        # Read stars from dmg_stars region (gold/silver pip counting)
+        stars_crop = _crop(frame, self.layout.dmg_stars)
+        hsv_stars = cv2.cvtColor(stars_crop, cv2.COLOR_BGR2HSV)
+        gold_mask = cv2.inRange(hsv_stars, (20, 100, 150), (40, 255, 255))
+        gold_px = cv2.countNonZero(gold_mask)
+        silver_mask = cv2.inRange(hsv_stars, (0, 0, 180), (180, 60, 255))
+        silver_px = cv2.countNonZero(silver_mask)
+        pip_total = gold_px + silver_px
+        if gold_px > 50:
+            dmg.stars = 3
+        elif pip_total > 30:
+            dmg.stars = 2
+        elif pip_total > 5:
+            dmg.stars = 1
+
+        return dmg

@@ -24,6 +24,7 @@ OCR_CONFIGS = {
     "gold_text":   {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 8, "whitelist": "0123456789"},
     "lives_text":  {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 7, "whitelist": "0123456789"},
     "level_text":  {"scale": 4, "method": "adaptive", "psm": 7},
+    "rerolls_text": {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 8, "whitelist": "0123456789"},
     "shop_card_0": {"scale": 4, "method": "adaptive", "psm": 11},
     "shop_card_1": {"scale": 4, "method": "adaptive", "psm": 11},
     "shop_card_2": {"scale": 4, "method": "adaptive", "psm": 11},
@@ -33,9 +34,10 @@ OCR_CONFIGS = {
 
 # Built-in region names (always present), in display order
 BUILTIN_REGION_NAMES = [
-    "round_text", "gold_text", "lives_text", "level_text",
+    "round_text", "gold_text", "lives_text", "level_text", "rerolls_text",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
-    "item_bench", "trait_panel", "top_dmg", "champion_bench", "score_display",
+    "item_bench", "trait_panel", "dmg_champ", "dmg_stars", "dmg_bar",
+    "champion_bench", "score_display",
     "board", "augment_select",
 ]
 
