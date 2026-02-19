@@ -50,13 +50,13 @@ class TFTLayout:
     )
 
     # Board hex grid parameters
-    board_hex_origin: tuple[int, int] = (600, 400)
+    board_hex_origin: tuple[int, int] = (600, 330)
     board_hex_cols: int = 7
     board_hex_rows: int = 4
     board_hex_col_width: int = 194
     board_hex_row_height: int = 150
     board_hex_row_offset: int = 97  # odd-row horizontal offset
-    board_hex_portrait_h: int = 80
+    board_hex_portrait_h: int = 100
 
     @property
     def board_hex_regions(self) -> list[ScreenRegion]:
