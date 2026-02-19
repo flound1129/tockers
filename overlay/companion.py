@@ -341,7 +341,7 @@ class CompanionWindow(QWidget):
         self._ocr_debounce.setInterval(500)
         self._ocr_debounce.timeout.connect(self._run_ocr_preview)
         self.setWindowTitle("Tocker's Companion")
-        self.resize(420, 900)
+        self.resize(525, 900)
         self.move(50, 50)
         self.setStyleSheet(DARK_THEME)
         self._init_ui()
@@ -1019,8 +1019,10 @@ class CompanionWindow(QWidget):
         locked_indicator = " [locked]" if self._ionia_locked else ""
         self._ionia_label.setText(f"Ionia: {ionia_display}{locked_indicator}")
 
-        # Smart augment locking
-        if state.augment_choices:
+        # Smart augment locking — only process on actual augment rounds
+        _AUGMENT_ROUNDS = {"1-5", "2-5", "3-5"}
+        is_augment_round = state.round_number in _AUGMENT_ROUNDS
+        if state.augment_choices and is_augment_round:
             # Detect new augment round (reset lock for each of 1-5, 2-5, 3-5)
             if state.round_number != self._current_augment_round:
                 self._current_augment_round = state.round_number
@@ -1040,7 +1042,7 @@ class CompanionWindow(QWidget):
                     self._augment_combo.clear()
                     self._augment_combo.addItems(state.augment_choices)
 
-                # Lock after seeing 6 unique (3 initial + 3 after reroll = all options exhausted)
+                # Lock after seeing 6 unique (reroll exhausted) — keep current 3
                 if len(self._all_seen_augments) >= 6:
                     self._augments_locked = True
 

@@ -191,6 +191,34 @@ def test_new_game_resets_augment_state(app):
     assert window._current_augment_round is None
 
 
+def test_non_augment_round_ignored(app):
+    """Augment choices on non-augment rounds should be ignored."""
+    window = CompanionWindow(engine=MagicMock())
+    from overlay.vision import GameState
+
+    # Set up augments on 1-5 and pick
+    state = GameState(
+        round_number="1-5",
+        augment_choices=["A", "B", "C"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state)
+    window._augment_combo.setCurrentIndex(0)
+    window._on_augment_pick()
+    assert window._augments_locked
+    assert window._augment_combo.count() == 3
+
+    # Non-augment round with garbage should not reset or update combo
+    state2 = GameState(
+        round_number="1-6",
+        augment_choices=["Garbage"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state2)
+    assert window._augments_locked
+    assert window._augment_combo.count() == 3
+
+
 def test_collapsible_sections_exist(app):
     """Verify collapsible sections are present."""
     window = CompanionWindow(engine=MagicMock())

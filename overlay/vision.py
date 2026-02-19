@@ -335,7 +335,7 @@ class GameStateReader:
             clean = text.strip()
             if not clean:
                 continue
-            matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.5)
+            matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.6)
             if matches:
                 names.append(matches[0])
         return names
