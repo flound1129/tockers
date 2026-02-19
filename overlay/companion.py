@@ -243,10 +243,15 @@ class CompanionWindow(QWidget):
         self._ocr_label.setStyleSheet("color: #0f0;")
         v.addWidget(self._ocr_label)
 
-        # Save button
-        self._save_btn = QPushButton("Save calibration.json")
+        # Buttons row
+        btn_row = QHBoxLayout()
+        self._save_btn = QPushButton("Save")
         self._save_btn.clicked.connect(self._on_save_calibration)
-        v.addWidget(self._save_btn)
+        self._show_all_btn = QPushButton("Show All")
+        self._show_all_btn.clicked.connect(self._on_show_all_regions)
+        btn_row.addWidget(self._save_btn)
+        btn_row.addWidget(self._show_all_btn)
+        v.addLayout(btn_row)
 
         # Load initial region values
         self._loading_region = False
@@ -440,6 +445,42 @@ class CompanionWindow(QWidget):
         from overlay.calibration import save_calibration
         save_calibration(CALIBRATION_PATH, self._layout)
         self._append_message("Cal", f"Saved to {CALIBRATION_PATH}")
+
+    def _on_show_all_regions(self):
+        """Show all regions with labels on the game overlay for 10 seconds."""
+        if self._layout is None:
+            return
+
+        screen = QApplication.primaryScreen()
+        screen_w = screen.geometry().width()
+        screen_h = screen.geometry().height()
+        game_w, game_h = self._layout.resolution
+        gx = max(0, (screen_w - game_w) // 2)
+        gy = max(0, (screen_h - game_h) // 2)
+
+        qt_regions = []
+        # All built-in regions
+        for name in BUILTIN_REGION_NAMES:
+            region = self._get_region(name)
+            if region:
+                qt_regions.append((
+                    QRect(gx + region.x, gy + region.y, region.w, region.h),
+                    name,
+                ))
+        # All extra regions from calibration.json
+        for name in sorted(self._layout.extra_regions.keys()):
+            region = self._layout.extra_regions[name]
+            qt_regions.append((
+                QRect(gx + region.x, gy + region.y, region.w, region.h),
+                name,
+            ))
+
+        self._region_overlay.set_regions(qt_regions)
+        self._region_overlay.setGeometry(0, 0, screen_w, screen_h)
+        self._region_overlay.show()
+
+        # Auto-hide after 10 seconds
+        QTimer.singleShot(10000, self._region_overlay.hide)
 
     # ── Chat / AI ─────────────────────────────────────────────────────
 
