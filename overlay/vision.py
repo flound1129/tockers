@@ -214,14 +214,15 @@ class GameStateReader:
             top_damage=self._cached_damage,
         )
 
-        # Template matching every frame (not OCR, fast)
-        if self.item_matcher:
-            bench_crop = _crop(frame, self.layout.item_bench)
-            state.items_on_bench = self.item_matcher.find_matches(bench_crop)
+        # Template matching + augment OCR only on round change
+        if round_changed:
+            if self.item_matcher:
+                bench_crop = _crop(frame, self.layout.item_bench)
+                state.items_on_bench = self.item_matcher.find_matches(bench_crop)
 
-        if self.champion_matcher and self.champion_matcher.templates:
-            state.my_bench = self._detect_bench_champions(frame)
-            state.my_board = self._detect_board_champions(frame)
+            if self.champion_matcher and self.champion_matcher.templates:
+                state.my_bench = self._detect_bench_champions(frame)
+                state.my_board = self._detect_board_champions(frame)
 
         # Augment names every frame on selection rounds (for rerolls)
         if state.round_number in ("1-5", "2-5", "3-5"):

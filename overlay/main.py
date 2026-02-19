@@ -60,6 +60,7 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
                 time.sleep(0.5)
                 continue
 
+            frame_start = time.time()
             companion.set_frame(frame)
             state = reader.read(frame)
             num_components = len(state.items_on_bench)
@@ -155,7 +156,8 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
                 "advice": "",
             })
 
-            time.sleep(1.0 / CAPTURE_FPS)
+            elapsed = time.time() - frame_start
+            time.sleep(max(0, 1.0 / CAPTURE_FPS - elapsed))
 
     finally:
         if recorder.active_run_id is not None:
