@@ -45,10 +45,12 @@ def test_game_info_updates(app):
         items_on_bench=[],
     )
     window.update_game_state(state, projected_score=142300)
-    text = window._info_label.text()
-    assert "2-5" in text
-    assert "8" in text
-    assert "142" in text
+    # Score displayed in dedicated widget
+    assert "142,300" in window._score_value.text()
+    # Round displayed as absolute
+    assert "15" in window._round_value.text()
+    # Gold displayed
+    assert "8" in window._gold_value.text()
 
 
 def test_chat_appends_user_message(app):
@@ -83,3 +85,124 @@ def test_chat_replaces_thinking_with_response(app):
     text = window._chat_display.toPlainText()
     assert "Hold your components." in text
     assert "thinking" not in text.lower()
+
+
+def test_augment_locking_after_pick(app):
+    """After picking an augment, the dropdown should be locked."""
+    window = CompanionWindow(engine=MagicMock())
+    from overlay.vision import GameState
+    state = GameState(
+        round_number="1-5",
+        augment_choices=["Augment A", "Augment B", "Augment C"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state)
+    assert window._augment_combo.count() == 3
+    assert not window._augments_locked
+
+    # Pick an augment
+    window._augment_combo.setCurrentIndex(0)
+    window._on_augment_pick()
+    assert window._augments_locked
+    assert window._picked_augments == ["Augment A"]
+
+    # Further updates should not change the combo
+    state2 = GameState(
+        round_number="1-5",
+        augment_choices=["Garbage X", "Garbage Y"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state2)
+    # Combo should still have original choices since it's locked
+    assert window._augment_combo.count() == 3
+
+
+def test_augment_locking_after_6_seen(app):
+    """After seeing 6 unique augments, lock automatically (reroll scenario)."""
+    window = CompanionWindow(engine=MagicMock())
+    from overlay.vision import GameState
+
+    state1 = GameState(
+        round_number="2-5",
+        augment_choices=["Aug1", "Aug2", "Aug3"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state1)
+    assert not window._augments_locked
+
+    # Simulate reroll: 3 new augments
+    state2 = GameState(
+        round_number="2-5",
+        augment_choices=["Aug4", "Aug5", "Aug6"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state2)
+    assert window._augments_locked
+
+
+def test_augment_round_reset(app):
+    """Each augment round (1-5, 2-5, 3-5) should reset the lock."""
+    window = CompanionWindow(engine=MagicMock())
+    from overlay.vision import GameState
+
+    # First augment round
+    state = GameState(
+        round_number="1-5",
+        augment_choices=["A", "B", "C"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state)
+    window._augment_combo.setCurrentIndex(0)
+    window._on_augment_pick()
+    assert window._augments_locked
+
+    # New augment round should reset
+    state2 = GameState(
+        round_number="2-5",
+        augment_choices=["D", "E", "F"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state2)
+    assert not window._augments_locked
+    assert window._augment_combo.count() == 3
+
+
+def test_new_game_resets_augment_state(app):
+    """Round 1-1 should reset all augment state."""
+    window = CompanionWindow(engine=MagicMock())
+    from overlay.vision import GameState
+
+    state = GameState(
+        round_number="1-5",
+        augment_choices=["X", "Y", "Z"],
+        items_on_bench=[],
+    )
+    window.update_game_state(state)
+    window._on_augment_pick()
+    assert window._augments_locked
+    assert len(window._picked_augments) == 1
+
+    # New game
+    state2 = GameState(round_number="1-1", items_on_bench=[])
+    window.update_game_state(state2)
+    assert not window._augments_locked
+    assert window._picked_augments == []
+    assert window._all_seen_augments == set()
+    assert window._current_augment_round is None
+
+
+def test_collapsible_sections_exist(app):
+    """Verify collapsible sections are present."""
+    window = CompanionWindow(engine=MagicMock())
+    assert window._board_section is not None
+    assert window._shop_section is not None
+    assert window._cal_section is not None
+    assert window._chat_section is not None
+
+
+def test_score_breakdown_bar(app):
+    """Verify ScoreBreakdownBar accepts segments."""
+    from overlay.companion import ScoreBreakdownBar
+    bar = ScoreBreakdownBar()
+    bar.set_segments([(100, "#FF0000"), (200, "#00FF00"), (50, "#0000FF")])
+    assert len(bar._segments) == 3

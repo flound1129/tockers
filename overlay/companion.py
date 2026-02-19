@@ -8,11 +8,12 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QLabel, QFrame, QComboBox,
     QSpinBox, QGridLayout, QCheckBox, QApplication,
+    QSizePolicy, QScrollArea,
 )
 from PyQt6.QtCore import QThread, Qt, QRect, QTimer
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtCore import pyqtSignal as Signal
-from PyQt6.QtGui import QFont, QPainter, QPen, QColor, QImage, QPixmap
+from PyQt6.QtGui import QFont, QPainter, QPen, QColor, QImage, QPixmap, QBrush
 
 from overlay.config import ScreenRegion, CALIBRATION_PATH
 from overlay.vision import _load_champion_names, _ocr_text
@@ -49,6 +50,154 @@ BUILTIN_REGION_NAMES = sorted([
     "trait_panel",
 ])
 
+# ── Theme ─────────────────────────────────────────────────────────
+
+DARK_THEME = """
+    QWidget { background-color: #1a1a2e; color: #e0e0e0; }
+    QFrame { background-color: #16213e; border: 1px solid #0f3460; border-radius: 6px; }
+    QLabel { border: none; background: transparent; }
+    QPushButton {
+        background-color: #0f3460; color: #e0e0e0; border: 1px solid #533483;
+        border-radius: 4px; padding: 4px 12px;
+    }
+    QPushButton:hover { background-color: #533483; }
+    QPushButton:pressed { background-color: #7b2d8e; }
+    QComboBox {
+        background-color: #0f3460; color: #e0e0e0; border: 1px solid #533483;
+        border-radius: 4px; padding: 2px 8px;
+    }
+    QComboBox QAbstractItemView {
+        background-color: #0f3460; color: #e0e0e0;
+        selection-background-color: #533483;
+    }
+    QSpinBox {
+        background-color: #0f3460; color: #e0e0e0; border: 1px solid #533483;
+        border-radius: 4px; padding: 2px 4px;
+    }
+    QTextEdit {
+        background-color: #0d1b2a; color: #e0e0e0; border: 1px solid #0f3460;
+        border-radius: 4px;
+    }
+    QLineEdit {
+        background-color: #0d1b2a; color: #e0e0e0; border: 1px solid #0f3460;
+        border-radius: 4px; padding: 4px 8px;
+    }
+    QCheckBox { background: transparent; border: none; }
+    QScrollArea { border: none; background: transparent; }
+    QScrollBar:vertical {
+        background: #0d1b2a; width: 8px; border-radius: 4px;
+    }
+    QScrollBar::handle:vertical {
+        background: #533483; border-radius: 4px; min-height: 20px;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+"""
+
+# Color constants
+CLR_GOLD = "#FFD700"
+CLR_RED = "#FF6B6B"
+CLR_GREEN = "#69DB7C"
+CLR_BLUE = "#74C0FC"
+CLR_GRAY = "#868E96"
+CLR_ORANGE = "#FFA94D"
+CLR_PURPLE = "#B197FC"
+CLR_DIMMED = "#495057"
+
+
+# ── Score Breakdown Bar ──────────────────────────────────────────
+
+class ScoreBreakdownBar(QWidget):
+    """Horizontal bar showing score component proportions."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(14)
+        self._segments: list[tuple[float, QColor, str]] = []  # (value, color, label)
+
+    def set_segments(self, segments: list[tuple[float, str]]):
+        """Set segments as [(value, hex_color), ...]."""
+        total = sum(v for v, _ in segments)
+        if total <= 0:
+            self._segments = []
+            self.update()
+            return
+        self._segments = [
+            (v / total, QColor(c), "")
+            for v, c in segments if v > 0
+        ]
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._segments:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w = self.width()
+        h = self.height()
+        x = 0.0
+        for frac, color, _ in self._segments:
+            seg_w = frac * w
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(int(x), 0, max(int(seg_w), 1), h, 3, 3)
+            x += seg_w
+        painter.end()
+
+
+# ── Collapsible Section ──────────────────────────────────────────
+
+class CollapsibleSection(QFrame):
+    """A frame with a clickable header that toggles content visibility."""
+
+    def __init__(self, title: str, collapsed: bool = True, parent=None):
+        super().__init__(parent)
+        self._collapsed = collapsed
+        self._title = title
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Header button
+        self._header = QPushButton()
+        self._header.setStyleSheet(
+            "QPushButton { text-align: left; padding: 6px 10px; "
+            "font-family: Consolas; font-size: 12pt; font-weight: bold; "
+            "background-color: #16213e; border: 1px solid #0f3460; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #1a2744; }"
+        )
+        self._header.clicked.connect(self.toggle)
+        main_layout.addWidget(self._header)
+
+        # Content container
+        self._content = QFrame()
+        self._content.setStyleSheet("QFrame { border: none; background: transparent; }")
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(6, 4, 6, 6)
+        self._content_layout.setSpacing(4)
+        main_layout.addWidget(self._content)
+
+        self._update_header()
+        self._content.setVisible(not collapsed)
+
+    def _update_header(self):
+        arrow = "\u25BC" if not self._collapsed else "\u25B6"
+        self._header.setText(f"  {arrow}  {self._title}")
+
+    def toggle(self):
+        self._collapsed = not self._collapsed
+        self._content.setVisible(not self._collapsed)
+        self._update_header()
+
+    def content_layout(self) -> QVBoxLayout:
+        return self._content_layout
+
+    def set_collapsed(self, collapsed: bool):
+        if self._collapsed != collapsed:
+            self.toggle()
+
+
+# ── Helper widgets ───────────────────────────────────────────────
 
 class RegionOverlay(QWidget):
     """Transparent full-screen overlay that draws red rectangles on regions."""
@@ -132,6 +281,37 @@ class _OcrWorker(QThread):
             self.finished.emit(f"[error: {e}]")
 
 
+# ── Status Card ──────────────────────────────────────────────────
+
+def _make_status_card(label_text: str, value_text: str, value_color: str,
+                      parent=None) -> tuple[QFrame, QLabel]:
+    """Create a mini status card with a dim label and prominent value."""
+    card = QFrame(parent)
+    card.setStyleSheet(
+        f"QFrame {{ background-color: #0d1b2a; border: 1px solid #0f3460; "
+        f"border-radius: 4px; padding: 2px; }}"
+    )
+    card_layout = QVBoxLayout(card)
+    card_layout.setContentsMargins(6, 2, 6, 2)
+    card_layout.setSpacing(0)
+
+    lbl = QLabel(label_text)
+    lbl.setFont(QFont("Consolas", 8))
+    lbl.setStyleSheet(f"color: {CLR_GRAY};")
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    card_layout.addWidget(lbl)
+
+    val = QLabel(value_text)
+    val.setFont(QFont("Consolas", 14, QFont.Weight.Bold))
+    val.setStyleSheet(f"color: {value_color};")
+    val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    card_layout.addWidget(val)
+
+    return card, val
+
+
+# ── Main Companion Window ────────────────────────────────────────
+
 class CompanionWindow(QWidget):
     def __init__(self, engine, layout=None, parent=None):
         super().__init__(parent)
@@ -146,6 +326,9 @@ class CompanionWindow(QWidget):
         self._ionia_locked: bool = False
         self._picked_augments: list[str] = []  # confirmed picks (up to 3)
         self._last_augment_choices: list[str] = []  # current dropdown options
+        self._all_seen_augments: set[str] = set()  # all unique names seen this augment round
+        self._augments_locked: bool = False  # stop updating combo after pick/6 seen
+        self._current_augment_round: str | None = None  # "1-5", "2-5", or "3-5"
         self._champ_names: list[str] = _load_champion_names()
         self._region_overlay = RegionOverlay()
         self._bridge_server = start_bridge()
@@ -154,8 +337,9 @@ class CompanionWindow(QWidget):
         self._ocr_debounce.setInterval(500)
         self._ocr_debounce.timeout.connect(self._run_ocr_preview)
         self.setWindowTitle("Tocker's Companion")
-        self.resize(420, 800)
+        self.resize(420, 900)
         self.move(50, 50)
+        self.setStyleSheet(DARK_THEME)
         self._init_ui()
 
     def closeEvent(self, event):
@@ -178,34 +362,188 @@ class CompanionWindow(QWidget):
     # ── UI setup ──────────────────────────────────────────────────────
 
     def _init_ui(self):
-        layout = QVBoxLayout()
-        layout.setContentsMargins(8, 8, 8, 8)
+        root = QVBoxLayout()
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(6)
+
+        # Scrollable content area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self.game_info_panel = self._build_game_info()
-        self.calibration_panel = self._build_calibration()
-        self.chat_panel = self._build_chat()
+        # 1. Score Dashboard
+        self.game_info_panel = self._build_score_dashboard()
+        layout.addWidget(self.game_info_panel)
+
+        # 2. Status Bar
+        status_bar = self._build_status_bar()
+        layout.addLayout(status_bar)
+
+        # 3. Strategy Section (Ionia + Augments)
+        strategy = self._build_strategy_section()
+        layout.addWidget(strategy)
+
+        # 4. Collapsible: Board & Bench
+        self._board_section = CollapsibleSection("Board & Bench", collapsed=True)
+        self._board_label = QLabel("\u2014")
+        self._board_label.setFont(QFont("Consolas", 11))
+        self._board_label.setWordWrap(True)
+        self._board_label.setStyleSheet(f"color: {CLR_BLUE};")
+        self._bench_label = QLabel("\u2014")
+        self._bench_label.setFont(QFont("Consolas", 11))
+        self._bench_label.setWordWrap(True)
+        self._bench_label.setStyleSheet(f"color: {CLR_GRAY};")
+        self._board_section.content_layout().addWidget(self._board_label)
+        self._board_section.content_layout().addWidget(self._bench_label)
+        layout.addWidget(self._board_section)
+
+        # 5. Collapsible: Shop
+        self._shop_section = CollapsibleSection("Shop", collapsed=True)
+        self._shop_label = QLabel("\u2014")
+        self._shop_label.setFont(QFont("Consolas", 11))
+        self._shop_label.setWordWrap(True)
+        self._shop_section.content_layout().addWidget(self._shop_label)
+        layout.addWidget(self._shop_section)
+
+        # 6. Collapsible: Calibration
+        self._cal_section = CollapsibleSection("Calibration", collapsed=True)
+        self._build_calibration_content(self._cal_section.content_layout())
+        self.calibration_panel = self._cal_section
+        layout.addWidget(self._cal_section)
+
+        # 7. Collapsible: Chat (expanded)
+        self._chat_section = CollapsibleSection("Chat", collapsed=False)
+        self._build_chat_content(self._chat_section.content_layout())
+        self.chat_panel = self._chat_section
+        layout.addWidget(self._chat_section)
+
+        layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        root.addWidget(scroll, stretch=1)
+
+        # Input bar always visible at bottom
         self.input_bar = self._build_input()
+        root.addWidget(self.input_bar, stretch=0)
 
-        layout.addWidget(self.game_info_panel, stretch=2)
-        layout.addWidget(self.calibration_panel, stretch=3)
-        layout.addWidget(self.chat_panel, stretch=4)
-        layout.addWidget(self.input_bar, stretch=0)
-        self.setLayout(layout)
+        self.setLayout(root)
 
-    def _build_game_info(self) -> QFrame:
+    def _build_score_dashboard(self) -> QFrame:
         frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(6, 6, 6, 6)
-        self._info_label = QLabel("Waiting for game state...")
-        self._info_label.setWordWrap(True)
-        self._info_label.setFont(QFont("Consolas", 13))
-        layout.addWidget(self._info_label)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+
+        # Projected score - large gold text
+        score_row = QHBoxLayout()
+        score_label = QLabel("PROJECTED SCORE")
+        score_label.setFont(QFont("Consolas", 8))
+        score_label.setStyleSheet(f"color: {CLR_GRAY};")
+        score_row.addWidget(score_label)
+        score_row.addStretch()
+        layout.addLayout(score_row)
+
+        self._score_value = QLabel("0")
+        self._score_value.setFont(QFont("Consolas", 22, QFont.Weight.Bold))
+        self._score_value.setStyleSheet(f"color: {CLR_GOLD};")
+        self._score_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._score_value)
+
+        # Score breakdown bar
+        self._score_bar = ScoreBreakdownBar()
+        layout.addWidget(self._score_bar)
+
+        # Legend row for breakdown bar
+        legend = QHBoxLayout()
+        legend.setSpacing(12)
+        for label, color in [("Components", CLR_RED), ("Interest", CLR_GREEN),
+                              ("Survival", CLR_BLUE), ("Time", CLR_GRAY)]:
+            dot = QLabel("\u25CF")
+            dot.setFont(QFont("Consolas", 8))
+            dot.setStyleSheet(f"color: {color};")
+            dot.setFixedWidth(10)
+            txt = QLabel(label)
+            txt.setFont(QFont("Consolas", 8))
+            txt.setStyleSheet(f"color: {CLR_DIMMED};")
+            legend.addWidget(dot)
+            legend.addWidget(txt)
+        legend.addStretch()
+        layout.addLayout(legend)
+
+        # Components card - prominent
+        comp_row = QHBoxLayout()
+        comp_icon = QLabel("\u2692")  # hammer and pick
+        comp_icon.setFont(QFont("Consolas", 16))
+        comp_icon.setStyleSheet(f"color: {CLR_ORANGE};")
+        comp_icon.setFixedWidth(24)
+        comp_row.addWidget(comp_icon)
+
+        self._components_value = QLabel("0")
+        self._components_value.setFont(QFont("Consolas", 16, QFont.Weight.Bold))
+        self._components_value.setStyleSheet(f"color: {CLR_ORANGE};")
+        comp_row.addWidget(self._components_value)
+
+        comp_lbl = QLabel("components on bench")
+        comp_lbl.setFont(QFont("Consolas", 10))
+        comp_lbl.setStyleSheet(f"color: {CLR_GRAY};")
+        comp_row.addWidget(comp_lbl)
+        comp_row.addStretch()
+
+        self._components_detail = QLabel("+0 pts")
+        self._components_detail.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        self._components_detail.setStyleSheet(f"color: {CLR_RED};")
+        comp_row.addWidget(self._components_detail)
+
+        layout.addLayout(comp_row)
+
+        return frame
+
+    def _build_status_bar(self) -> QHBoxLayout:
+        bar = QHBoxLayout()
+        bar.setSpacing(4)
+
+        # Round card
+        round_card, self._round_value = _make_status_card("ROUND", "--/30", CLR_BLUE)
+        bar.addWidget(round_card)
+
+        # Gold card
+        gold_card, self._gold_value = _make_status_card("GOLD", "--", CLR_GOLD)
+        bar.addWidget(gold_card)
+
+        # Level card
+        level_card, self._level_value = _make_status_card("LEVEL", "--", "#e0e0e0")
+        bar.addWidget(level_card)
+
+        # Lives card
+        lives_card, self._lives_value = _make_status_card("LIVES", "--", CLR_RED)
+        bar.addWidget(lives_card)
+
+        return bar
+
+    def _build_strategy_section(self) -> QFrame:
+        frame = QFrame()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(4)
+
+        header = QLabel("STRATEGY")
+        header.setFont(QFont("Consolas", 8))
+        header.setStyleSheet(f"color: {CLR_GRAY};")
+        layout.addWidget(header)
+
         # Ionia path row
         ionia_row = QHBoxLayout()
+        ionia_icon = QLabel("\u2694")  # crossed swords
+        ionia_icon.setFont(QFont("Consolas", 14))
+        ionia_icon.setStyleSheet(f"color: {CLR_PURPLE};")
+        ionia_icon.setFixedWidth(20)
+        ionia_row.addWidget(ionia_icon)
         self._ionia_label = QLabel("Ionia: --")
-        self._ionia_label.setFont(QFont("Consolas", 13))
+        self._ionia_label.setFont(QFont("Consolas", 12))
+        self._ionia_label.setStyleSheet(f"color: {CLR_PURPLE};")
         self._ionia_unlock_btn = QPushButton("Unlock")
         self._ionia_unlock_btn.setFixedWidth(70)
         self._ionia_unlock_btn.clicked.connect(self._on_ionia_unlock)
@@ -213,15 +551,18 @@ class CompanionWindow(QWidget):
         ionia_row.addWidget(self._ionia_label, stretch=1)
         ionia_row.addWidget(self._ionia_unlock_btn, stretch=0)
         layout.addLayout(ionia_row)
+
         # Augments display
         self._augment_label = QLabel("Augments: --")
-        self._augment_label.setFont(QFont("Consolas", 13))
+        self._augment_label.setFont(QFont("Consolas", 11))
         self._augment_label.setWordWrap(True)
+        self._augment_label.setStyleSheet(f"color: {CLR_GOLD};")
         layout.addWidget(self._augment_label)
-        # Augment picker row (shown during augment rounds)
+
+        # Augment picker row
         aug_pick_row = QHBoxLayout()
         self._augment_combo = QComboBox()
-        self._augment_combo.setFont(QFont("Consolas", 12))
+        self._augment_combo.setFont(QFont("Consolas", 11))
         self._augment_pick_btn = QPushButton("Pick")
         self._augment_pick_btn.setFixedWidth(50)
         self._augment_pick_btn.clicked.connect(self._on_augment_pick)
@@ -233,20 +574,10 @@ class CompanionWindow(QWidget):
         aug_pick_row.addWidget(self._augment_pick_btn, stretch=0)
         aug_pick_row.addWidget(self._augment_undo_btn, stretch=0)
         layout.addLayout(aug_pick_row)
+
         return frame
 
-    def _build_calibration(self) -> QFrame:
-        frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-        v = QVBoxLayout(frame)
-        v.setContentsMargins(6, 6, 6, 6)
-        v.setSpacing(4)
-
-        # Header
-        header = QLabel("Calibration")
-        header.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
-        v.addWidget(header)
-
+    def _build_calibration_content(self, v: QVBoxLayout):
         # Region selector
         self._region_combo = QComboBox()
         self._region_combo.addItems(BUILTIN_REGION_NAMES)
@@ -279,14 +610,14 @@ class CompanionWindow(QWidget):
         self._crop_preview = QLabel()
         self._crop_preview.setFixedHeight(80)
         self._crop_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._crop_preview.setStyleSheet("background: #222; border: 1px solid #555;")
+        self._crop_preview.setStyleSheet("background: #0d1b2a; border: 1px solid #0f3460;")
         v.addWidget(self._crop_preview)
 
         # OCR result
         self._ocr_label = QLabel("")
-        self._ocr_label.setFont(QFont("Consolas", 12))
+        self._ocr_label.setFont(QFont("Consolas", 11))
         self._ocr_label.setWordWrap(True)
-        self._ocr_label.setStyleSheet("color: #0f0;")
+        self._ocr_label.setStyleSheet(f"color: {CLR_GREEN};")
         v.addWidget(self._ocr_label)
 
         # Buttons row
@@ -306,34 +637,28 @@ class CompanionWindow(QWidget):
         self._loading_region = False
         self._on_region_changed(self._region_combo.currentText())
 
-        return frame
-
     def _make_spin(self, label: str, min_val: int, max_val: int) -> QSpinBox:
         spin = QSpinBox()
         spin.setRange(min_val, max_val)
         spin.setSingleStep(1)
-        spin.setFont(QFont("Consolas", 12))
+        spin.setFont(QFont("Consolas", 11))
         spin.valueChanged.connect(self._on_spin_changed)
         return spin
 
-    def _build_chat(self) -> QFrame:
-        frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(6, 6, 6, 6)
+    def _build_chat_content(self, v: QVBoxLayout):
         self._chat_display = QTextEdit()
         self._chat_display.setReadOnly(True)
-        self._chat_display.setFont(QFont("Consolas", 13))
-        layout.addWidget(self._chat_display)
-        return frame
+        self._chat_display.setFont(QFont("Consolas", 11))
+        self._chat_display.setMinimumHeight(120)
+        v.addWidget(self._chat_display)
 
     def _build_input(self) -> QFrame:
         frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(6, 4, 6, 4)
         self._input_field = QLineEdit()
         self._input_field.setPlaceholderText("Ask a strategy question...")
+        self._input_field.setFont(QFont("Consolas", 11))
         self._send_button = QPushButton("Send \u23ce")
         self._send_button.clicked.connect(self._on_send)
         self._input_field.returnPressed.connect(self._on_send)
@@ -494,6 +819,7 @@ class CompanionWindow(QWidget):
         text = self._augment_combo.currentText()
         if text and len(self._picked_augments) < 3:
             self._picked_augments.append(text)
+            self._augments_locked = True
             self._augment_undo_btn.setEnabled(True)
             self._update_augment_display()
 
@@ -501,6 +827,7 @@ class CompanionWindow(QWidget):
         if self._picked_augments:
             self._picked_augments.pop()
         self._augment_undo_btn.setEnabled(bool(self._picked_augments))
+        self._augments_locked = False
         self._update_augment_display()
 
     def _update_augment_display(self):
@@ -583,8 +910,25 @@ class CompanionWindow(QWidget):
         self._input_field.setEnabled(False)
         self._append_message("You", text)
         self._append_message("AI", "thinking...")
-        self._current_game_state_text = self._info_label.text()
+        self._current_game_state_text = self._build_game_state_text()
         self._start_ai_request(text)
+
+    def _build_game_state_text(self) -> str:
+        """Build a text summary of the current game state for AI context."""
+        parts = [
+            f"Score: {self._score_value.text()}",
+            f"Round: {self._round_value.text()}",
+            f"Gold: {self._gold_value.text()}",
+            f"Level: {self._level_value.text()}",
+            f"Lives: {self._lives_value.text()}",
+            f"Components: {self._components_value.text()}",
+            f"Board: {self._board_label.text()}",
+            f"Bench: {self._bench_label.text()}",
+            f"Shop: {self._shop_label.text()}",
+            f"Ionia: {self._ionia_label.text()}",
+            f"Augments: {self._augment_label.text()}",
+        ]
+        return "\n".join(parts)
 
     def _append_message(self, sender: str, text: str):
         self._chat_display.append(f"[{sender}]  {text}\n")
@@ -654,6 +998,9 @@ class CompanionWindow(QWidget):
             self._ionia_unlock_btn.setEnabled(False)
             self._picked_augments = []
             self._last_augment_choices = []
+            self._all_seen_augments = set()
+            self._augments_locked = False
+            self._current_augment_round = None
             self._augment_combo.clear()
             self._augment_undo_btn.setEnabled(False)
             self._update_augment_display()
@@ -668,37 +1015,77 @@ class CompanionWindow(QWidget):
         locked_indicator = " [locked]" if self._ionia_locked else ""
         self._ionia_label.setText(f"Ionia: {ionia_display}{locked_indicator}")
 
-        # Update augment dropdown when choices actually change (handles rerolls)
+        # Smart augment locking
         if state.augment_choices:
-            new_set = set(state.augment_choices)
-            old_set = set(self._last_augment_choices)
-            if new_set != old_set:
-                self._last_augment_choices = list(state.augment_choices)
-                self._augment_combo.clear()
-                self._augment_combo.addItems(state.augment_choices)
+            # Detect new augment round (reset lock for each of 1-5, 2-5, 3-5)
+            if state.round_number != self._current_augment_round:
+                self._current_augment_round = state.round_number
+                self._all_seen_augments = set()
+                self._augments_locked = False
 
+            if not self._augments_locked:
+                # Track all unique names seen (initial 3 + rerolled 3 = 6 max)
+                for name in state.augment_choices:
+                    self._all_seen_augments.add(name)
+
+                # Update combo only when choices actually change
+                new_set = set(state.augment_choices)
+                old_set = set(self._last_augment_choices)
+                if new_set != old_set:
+                    self._last_augment_choices = list(state.augment_choices)
+                    self._augment_combo.clear()
+                    self._augment_combo.addItems(state.augment_choices)
+
+                # Lock after seeing 6 unique (3 initial + 3 after reroll = all options exhausted)
+                if len(self._all_seen_augments) >= 6:
+                    self._augments_locked = True
+
+        # Update score dashboard
+        self._score_value.setText(f"{projected_score:,}")
+
+        items_count = len(state.items_on_bench)
+        items_value = items_count * 2500 * 30
+        self._components_value.setText(str(items_count))
+        self._components_detail.setText(f"+{items_value:,} pts")
+
+        # Estimate score breakdown for the bar
+        # Components (biggest driver), interest, survival, time
+        interest_pts = 0
+        if state.gold is not None:
+            interest_per_round = min(state.gold // 10, 5) * 1000
+            abs_round = self._round_to_int(state.round_number)
+            remaining = max(0, 30 - abs_round)
+            interest_pts = interest_per_round * remaining
+        survival_pts = len(state.my_board) * 250 * 30
+        time_pts = 2750 * 30
+        self._score_bar.set_segments([
+            (items_value, CLR_RED),
+            (interest_pts, CLR_GREEN),
+            (survival_pts, CLR_BLUE),
+            (time_pts, CLR_GRAY),
+        ])
+
+        # Update status cards
+        abs_round = self._round_to_int(state.round_number)
+        self._round_value.setText(f"{abs_round}/30" if abs_round > 0 else "--/30")
+        self._gold_value.setText(str(state.gold) if state.gold is not None else "--")
+        self._level_value.setText(str(state.level) if state.level is not None else "--")
+
+        hearts = "\u2665" * (state.lives or 0) if state.lives else "--"
+        self._lives_value.setText(hearts)
+
+        # Update board & bench
+        board_str = self._format_champions(state.my_board)
+        bench_str = self._format_champions(state.my_bench)
+        self._board_label.setText(f"Board ({len(state.my_board)}): {board_str}")
+        self._bench_label.setText(f"Bench ({len(state.my_bench)}): {bench_str}")
+
+        # Update shop
         slots = state.shop or []
         shop_parts = []
         for i, name in enumerate(slots):
             shop_parts.append(f"{i+1}:{name}" if name else f"{i+1}:\u2014")
-        shop_str = "  ".join(shop_parts) or "\u2014"
-        items_count = len(state.items_on_bench)
-        items_value = items_count * 2500 * 30
-        board_str = self._format_champions(state.my_board)
-        bench_str = self._format_champions(state.my_bench)
-        hearts = "\u2665" * (state.lives or 0)
-        lines = [
-            f"Round: {state.round_number or '--'}  "
-            f"Gold: {state.gold or '--'}  "
-            f"Level: {state.level or '--'}  "
-            f"Lives: {hearts}",
-            f"Board ({len(state.my_board)}): {board_str}",
-            f"Bench ({len(state.my_bench)}): {bench_str}",
-            f"Shop: {shop_str}",
-            f"Items on bench: {items_count}  (+{items_value:,} pts)",
-            f"Projected score: {projected_score:,}",
-        ]
-        self._info_label.setText("\n".join(lines))
+        self._shop_label.setText("  ".join(shop_parts) or "\u2014")
 
     def _round_to_int(self, round_str: str | None) -> int:
         if not round_str or "-" not in round_str:

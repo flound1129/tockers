@@ -336,7 +336,8 @@ class GameStateReader:
             if not clean:
                 continue
             matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.5)
-            names.append(matches[0] if matches else clean)
+            if matches:
+                names.append(matches[0])
         return names
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
