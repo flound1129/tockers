@@ -33,14 +33,15 @@ OCR_CONFIGS = {
     "shop_card_4": {"scale": 4, "method": "adaptive", "psm": 11},
 }
 
-# Built-in region names (always present), in display order
-BUILTIN_REGION_NAMES = [
-    "round_text", "gold_text", "lives_text", "level_text", "rerolls_text",
+# Built-in region names (always present), alphabetized
+BUILTIN_REGION_NAMES = sorted([
+    "augment_select", "board", "champion_bench",
+    "dmg_amount", "dmg_bar", "dmg_champ", "dmg_stars",
+    "gold_text", "item_bench", "level_text", "lives_text",
+    "rerolls_text", "round_text", "score_display",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
-    "item_bench", "trait_panel", "dmg_champ", "dmg_stars", "dmg_bar", "dmg_amount",
-    "champion_bench", "score_display",
-    "board", "augment_select",
-]
+    "trait_panel",
+])
 
 
 class RegionOverlay(QWidget):
@@ -202,11 +203,13 @@ class CompanionWindow(QWidget):
         header.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
         v.addWidget(header)
 
-        # Region selector (built-in + any extra from calibration.json)
+        # Region selector (built-in + any extra from calibration.json, all sorted)
         self._region_combo = QComboBox()
-        self._region_combo.addItems(BUILTIN_REGION_NAMES)
+        all_names = list(BUILTIN_REGION_NAMES)
         if self._layout and self._layout.extra_regions:
-            self._region_combo.addItems(sorted(self._layout.extra_regions.keys()))
+            all_names.extend(self._layout.extra_regions.keys())
+            all_names.sort()
+        self._region_combo.addItems(all_names)
         self._region_combo.currentTextChanged.connect(self._on_region_changed)
         v.addWidget(self._region_combo)
 
