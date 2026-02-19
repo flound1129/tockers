@@ -244,20 +244,33 @@ class GameStateReader:
                 return val
         return None
 
-    IONIA_PATHS = ["Blades", "Determination", "Enlightenment", "Generosity", "Spirit", "Transcendence"]
+    # Map displayed path names to trait names
+    IONIA_PATH_MAP = {
+        "Blade": "Blades",
+        "Determination": "Determination",
+        "Enlightenment": "Enlightenment",
+        "Prosperous": "Generosity",
+        "Spirit": "Spirit",
+        "Transcendence": "Transcendence",
+    }
 
     def _read_ionia_path(self, frame: np.ndarray) -> str | None:
         crop = _crop(frame, self.layout.ionia_trait_text)
         if np.mean(crop) < 10:
             return None
         text = _ocr_text(crop, scale=4, method="adaptive", psm=7)
-        clean = re.sub(r"[^a-zA-Z]", "", text).strip()
-        if not clean:
+        if not text:
             return None
-        # Fuzzy match against known paths
+        # Extract keyword from "Path of the <Name>:" or "Path of <Name>:"
         from difflib import get_close_matches
-        matches = get_close_matches(clean, self.IONIA_PATHS, n=1, cutoff=0.5)
-        return matches[0] if matches else None
+        words = re.findall(r"[a-zA-Z]+", text)
+        for word in words:
+            matches = get_close_matches(
+                word, list(self.IONIA_PATH_MAP.keys()), n=1, cutoff=0.6
+            )
+            if matches:
+                return self.IONIA_PATH_MAP[matches[0]]
+        return None
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
         """Read champion names from 5 shop card slots using multi-pass OCR."""
