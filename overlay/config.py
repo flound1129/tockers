@@ -27,6 +27,7 @@ class TFTLayout:
     board: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
     item_bench: ScreenRegion = field(default_factory=lambda: ScreenRegion(345, 1165, 1635, 55))
     trait_panel: ScreenRegion = field(default_factory=lambda: ScreenRegion(1980, 1165, 300, 55))
+    top_dmg: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 750, 400, 60))
     score_display: ScreenRegion = field(default_factory=lambda: ScreenRegion(2276, 378, 214, 91))
     augment_select: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
 

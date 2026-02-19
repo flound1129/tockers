@@ -35,7 +35,7 @@ OCR_CONFIGS = {
 BUILTIN_REGION_NAMES = [
     "round_text", "gold_text", "lives_text", "level_text",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
-    "item_bench", "trait_panel", "champion_bench", "score_display",
+    "item_bench", "trait_panel", "top_dmg", "champion_bench", "score_display",
     "board", "augment_select",
 ]
 
