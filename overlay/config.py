@@ -35,13 +35,13 @@ class TFTLayout:
     lives_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(2355, 290, 65, 25))
     level_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(330, 1193, 210, 25))
 
-    # Individual shop card name bars (5 slots, ~280px each)
+    # Individual shop card name bars (5 slots, 180px to exclude cost icon)
     shop_card_names: list[ScreenRegion] = field(default_factory=lambda: [
-        ScreenRegion(590, 1400, 280, 30),
-        ScreenRegion(870, 1400, 280, 30),
-        ScreenRegion(1150, 1400, 280, 30),
-        ScreenRegion(1430, 1400, 280, 30),
-        ScreenRegion(1710, 1400, 280, 30),
+        ScreenRegion(590, 1400, 180, 30),
+        ScreenRegion(870, 1400, 180, 30),
+        ScreenRegion(1150, 1400, 180, 30),
+        ScreenRegion(1430, 1400, 180, 30),
+        ScreenRegion(1710, 1400, 180, 30),
     ])
 
 

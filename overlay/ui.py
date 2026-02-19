@@ -39,7 +39,7 @@ class OverlayWindow(QWidget):
             layout.addWidget(lbl)
 
         self.setLayout(layout)
-        self.move(2560 - 460, 50)
+        self.move(1290, 50)  # top-left of TFT window (centered on 5120x1440)
         self.resize(450, 300)
 
     def _make_label(self, font, text):

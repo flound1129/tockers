@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import cv2
@@ -51,6 +52,7 @@ class CompanionWindow(QWidget):
         self._champ_names: list[str] = _load_champion_names()
         self.setWindowTitle("Tocker's Companion")
         self.resize(400, 700)
+        self.move(50, 50)
         self._init_ui()
 
     def closeEvent(self, event):
@@ -187,7 +189,8 @@ class CompanionWindow(QWidget):
         out_dir = Path(__file__).parent.parent / "debug_crops"
         out_dir.mkdir(exist_ok=True)
 
-        self._append_message("Debug", f"Frame: {frame.shape[1]}x{frame.shape[0]}")
+        report_lines = [f"Frame: {frame.shape[1]}x{frame.shape[0]}"]
+        self._append_message("Debug", report_lines[0])
 
         for i, region in enumerate(self._layout.shop_card_names):
             crop = frame[region.y:region.y + region.h,
@@ -195,9 +198,11 @@ class CompanionWindow(QWidget):
             cv2.imwrite(str(out_dir / f"shop_slot_{i}.png"), crop)
 
             gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-            if gray.mean() < 15:
-                self._append_message("Debug",
-                    f"Slot {i}: EMPTY (brightness {gray.mean():.0f})")
+            brightness = gray.mean()
+            if brightness < 25:
+                line = f"Slot {i}: EMPTY (brightness {brightness:.0f})"
+                self._append_message("Debug", line)
+                report_lines.append(line)
                 continue
 
             # Adaptive pass (scale 4)
@@ -206,9 +211,10 @@ class CompanionWindow(QWidget):
             proc_a = cv2.adaptiveThreshold(
                 scaled_a, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                 cv2.THRESH_BINARY, 31, -10)
-            text_a = pytesseract.image_to_string(
+            raw_a = pytesseract.image_to_string(
                 proc_a, config="--psm 11").strip()
-            text_a = text_a.split("\n")[0].strip() if text_a else ""
+            first_a = raw_a.split("\n")[0].strip() if raw_a else ""
+            clean_a = re.sub(r"[^a-zA-Z\s']", "", first_a).strip()
             cv2.imwrite(str(out_dir / f"shop_slot_{i}_adaptive.png"), proc_a)
 
             # OTSU pass (scale 3)
@@ -216,14 +222,15 @@ class CompanionWindow(QWidget):
                                   interpolation=cv2.INTER_CUBIC)
             _, proc_o = cv2.threshold(
                 scaled_o, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            text_o = pytesseract.image_to_string(
+            raw_o = pytesseract.image_to_string(
                 proc_o, config="--psm 11").strip()
-            text_o = text_o.split("\n")[0].strip() if text_o else ""
+            first_o = raw_o.split("\n")[0].strip() if raw_o else ""
+            clean_o = re.sub(r"[^a-zA-Z\s']", "", first_o).strip()
             cv2.imwrite(str(out_dir / f"shop_slot_{i}_otsu.png"), proc_o)
 
             # Fuzzy match
             best_name, best_ratio = None, 0.0
-            for raw in [text_a, text_o]:
+            for raw in [clean_a, clean_o]:
                 if not raw:
                     continue
                 close = get_close_matches(
@@ -235,11 +242,17 @@ class CompanionWindow(QWidget):
                         best_ratio = ratio
                         best_name = close[0]
 
-            self._append_message("Debug",
-                f"Slot {i}: adap='{text_a}' otsu='{text_o}' "
-                f"-> {best_name} ({best_ratio:.2f})")
+            line = (f"Slot {i}: brightness={brightness:.0f} "
+                    f"adap_raw='{first_a}' adap_clean='{clean_a}' "
+                    f"otsu_raw='{first_o}' otsu_clean='{clean_o}' "
+                    f"-> {best_name} ({best_ratio:.2f})")
+            self._append_message("Debug", line)
+            report_lines.append(line)
 
-        self._append_message("Debug", f"Crops saved to {out_dir}")
+        # Write report for remote debugging
+        report_path = out_dir / "report.txt"
+        report_path.write_text("\n".join(report_lines), encoding="utf-8")
+        self._append_message("Debug", f"Crops + report saved to {out_dir}")
 
     def update_game_state(self, state, projected_score: int = 0):
         """Refresh the game info panel. Safe to call from any thread via signal."""

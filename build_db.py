@@ -226,7 +226,7 @@ def insert_champions(conn, set_data):
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 api_name,
-                c.get("name", ""),
+                c.get("name", "").strip(),
                 cost,
                 c.get("role"),
                 stats.get("hp"),
@@ -280,7 +280,7 @@ def insert_traits(conn, set_data):
 
         conn.execute(
             "INSERT OR REPLACE INTO traits (api_name, name, description) VALUES (?, ?, ?)",
-            (api_name, t.get("name", ""), t.get("desc", "")),
+            (api_name, t.get("name", "").strip(), t.get("desc", "").strip()),
         )
 
         for effect in t.get("effects", []):
@@ -327,8 +327,8 @@ def insert_items(conn, items_data):
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 api_name,
-                item.get("name", ""),
-                item.get("desc", ""),
+                item.get("name", "").strip(),
+                item.get("desc", "").strip(),
                 is_component,
                 is_augment,
                 is_unique,
@@ -392,8 +392,8 @@ def insert_augments(conn, cdragon_items, map22_data):
                VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 api_name,
-                item.get("name", ""),
-                item.get("desc", ""),
+                item.get("name", "").strip(),
+                item.get("desc", "").strip(),
                 json.dumps(effects) if effects else None,
                 json.dumps(traits) if traits else None,
                 in_tockers,

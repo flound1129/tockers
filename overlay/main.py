@@ -12,18 +12,21 @@ from overlay.vision import TemplateMatcher, GameStateReader
 from overlay.strategy import StrategyEngine
 
 
+ITEM_ICON_SIZE = 40  # approximate item icon size at 2560x1440
+
+
 def create_matchers():
     item_dir = REFERENCES_DIR / "items"
     augment_dir = REFERENCES_DIR / "augments"
 
-    def load_or_empty(d):
+    def load_or_empty(d, icon_size=None):
         if d.exists() and any(d.glob("*.png")):
-            return TemplateMatcher(d)
+            return TemplateMatcher(d, icon_size=icon_size)
         m = TemplateMatcher.__new__(TemplateMatcher)
         m.templates = {}
         return m
 
-    return load_or_empty(item_dir), load_or_empty(augment_dir)
+    return load_or_empty(item_dir, ITEM_ICON_SIZE), load_or_empty(augment_dir)
 
 
 def _round_str_to_int(round_str: str | None) -> int:

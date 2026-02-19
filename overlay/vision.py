@@ -27,15 +27,18 @@ class Match:
 
 
 class TemplateMatcher:
-    def __init__(self, templates_dir: Path):
+    def __init__(self, templates_dir: Path, icon_size: int | None = None):
         self.templates: dict[str, np.ndarray] = {}
-        self._load_templates(templates_dir)
+        self._load_templates(templates_dir, icon_size)
 
-    def _load_templates(self, templates_dir: Path):
+    def _load_templates(self, templates_dir: Path, icon_size: int | None):
         for img_path in templates_dir.glob("*.png"):
             name = img_path.stem
             img = cv2.imread(str(img_path))
             if img is not None:
+                if icon_size and (img.shape[0] != icon_size or img.shape[1] != icon_size):
+                    img = cv2.resize(img, (icon_size, icon_size),
+                                     interpolation=cv2.INTER_AREA)
                 self.templates[name] = img
 
     def find_matches(
@@ -81,7 +84,7 @@ def _load_champion_names() -> list[str]:
         conn = sqlite3.connect(DB_PATH)
         rows = conn.execute("SELECT name FROM champions").fetchall()
         conn.close()
-        return [r[0] for r in rows]
+        return [r[0].strip() for r in rows]
     except Exception:
         return []
 
@@ -215,7 +218,7 @@ class GameStateReader:
     def _read_single_card(self, frame: np.ndarray, region: ScreenRegion) -> str | None:
         """Read a single shop card name with adaptive + OTSU fallback."""
         crop = _crop(frame, region)
-        if np.mean(crop) < 15:
+        if np.mean(crop) < 25:
             return None
 
         ocr_texts = []
