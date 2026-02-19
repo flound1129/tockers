@@ -156,11 +156,14 @@ class CompanionWindow(QWidget):
         self._debug_bench_button.clicked.connect(self._on_debug_bench)
         self._debug_board_button = QPushButton("Debug Board")
         self._debug_board_button.clicked.connect(self._on_debug_board)
+        self._debug_all_button = QPushButton("Debug All")
+        self._debug_all_button.clicked.connect(self._on_debug_all)
         layout.addWidget(self._input_field, stretch=4)
         layout.addWidget(self._send_button, stretch=1)
         layout.addWidget(self._debug_button, stretch=1)
         layout.addWidget(self._debug_bench_button, stretch=1)
         layout.addWidget(self._debug_board_button, stretch=1)
+        layout.addWidget(self._debug_all_button, stretch=1)
         return frame
 
     def _on_send(self):
@@ -296,6 +299,41 @@ class CompanionWindow(QWidget):
         report_path = out_dir / "report.txt"
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
         self._append_message("Debug", f"Crops + report saved to {out_dir}")
+
+    def _on_debug_all(self):
+        """Show all detection regions on the game overlay."""
+        if self._last_frame is None or self._layout is None:
+            self._append_message("Debug", "No frame captured yet.")
+            return
+
+        from overlay.config import ScreenRegion
+        regions = []
+
+        # Board hex grid
+        cols = self._layout.board_hex_cols
+        for idx, region in enumerate(self._layout.board_hex_regions):
+            row = idx // cols
+            col = idx % cols
+            regions.append((region, f"b{row},{col}"))
+
+        # Champion bench
+        regions.append((self._layout.champion_bench, "bench"))
+
+        # Item bench
+        regions.append((self._layout.item_bench, "items"))
+
+        # Shop card names
+        for i, region in enumerate(self._layout.shop_card_names):
+            regions.append((region, f"shop{i}"))
+
+        # OCR regions
+        regions.append((self._layout.round_text, "round"))
+        regions.append((self._layout.gold_text, "gold"))
+        regions.append((self._layout.lives_text, "lives"))
+        regions.append((self._layout.level_text, "level"))
+
+        self._show_debug_regions(regions)
+        self._append_message("Debug", f"Showing {len(regions)} regions on overlay")
 
     def _show_debug_regions(self, regions: list[tuple]):
         """Show red rectangles on the game overlay.
