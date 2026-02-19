@@ -668,11 +668,14 @@ class CompanionWindow(QWidget):
         locked_indicator = " [locked]" if self._ionia_locked else ""
         self._ionia_label.setText(f"Ionia: {ionia_display}{locked_indicator}")
 
-        # Update augment dropdown when choices change (handles rerolls)
-        if state.augment_choices and state.augment_choices != self._last_augment_choices:
-            self._last_augment_choices = list(state.augment_choices)
-            self._augment_combo.clear()
-            self._augment_combo.addItems(state.augment_choices)
+        # Update augment dropdown when choices actually change (handles rerolls)
+        if state.augment_choices:
+            new_set = set(state.augment_choices)
+            old_set = set(self._last_augment_choices)
+            if new_set != old_set:
+                self._last_augment_choices = list(state.augment_choices)
+                self._augment_combo.clear()
+                self._augment_combo.addItems(state.augment_choices)
 
         slots = state.shop or []
         shop_parts = []

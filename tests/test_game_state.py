@@ -15,4 +15,4 @@ def test_read_returns_game_state():
     assert isinstance(state, GameState)
     assert state.phase == "planning"
     assert state.items_on_bench == []
-    assert state.shop == ["", "", "", "", ""]
+    assert state.shop == []  # no round detected, shop not scanned yet

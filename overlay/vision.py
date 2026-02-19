@@ -96,6 +96,22 @@ def _load_champion_names() -> list[str]:
 CHAMPION_NAMES = _load_champion_names()
 
 
+def _load_augment_names() -> list[str]:
+    """Load unique augment names from the database for fuzzy matching."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT DISTINCT name FROM items WHERE api_name LIKE '%Augment%'"
+        ).fetchall()
+        conn.close()
+        return sorted(set(r[0].strip() for r in rows))
+    except Exception:
+        return []
+
+
+AUGMENT_NAMES = _load_augment_names()
+
+
 def _ocr_text(image: np.ndarray, scale: int = 4, method: str = "threshold",
               threshold_val: int = 140, psm: int = 7, whitelist: str = "") -> str:
     """Run Tesseract OCR on a BGR image with preprocessing."""
@@ -162,19 +178,43 @@ class GameStateReader:
         self.item_matcher = item_matcher
         self.augment_matcher = augment_matcher
         self.ionia_locked = False
+        # Cached OCR results (only re-read on round change)
+        self._last_round: str | None = None
+        self._cached_gold: int | None = None
+        self._cached_lives: int | None = None
+        self._cached_level: int | None = None
+        self._cached_rerolls: int | None = None
+        self._cached_shop: list[str] = []
+        self._cached_damage: DamageBreakdown | None = None
 
     def read(self, frame: np.ndarray) -> GameState:
+        # Round text every frame (fast, drives transitions)
+        round_number = self._read_round(frame)
+        round_changed = round_number != self._last_round and round_number is not None
+
+        # Full text OCR only on round change
+        if round_changed:
+            self._last_round = round_number
+            self._cached_gold = self._read_gold(frame)
+            self._cached_lives = self._read_lives(frame)
+            self._cached_level = self._read_level(frame)
+            self._cached_rerolls = self._read_rerolls(frame)
+            self._cached_shop = self._read_shop_names(frame)
+            self._cached_damage = self._read_top_damage(frame)
+
         state = GameState(
             phase=self._detect_phase(frame),
-            round_number=self._read_round(frame),
-            gold=self._read_gold(frame),
-            lives=self._read_lives(frame),
-            level=self._read_level(frame),
-            rerolls=self._read_rerolls(frame),
+            round_number=round_number,
+            gold=self._cached_gold,
+            lives=self._cached_lives,
+            level=self._cached_level,
+            rerolls=self._cached_rerolls,
             ionia_path=None if self.ionia_locked else self._read_ionia_path(frame),
-            shop=self._read_shop_names(frame),
+            shop=self._cached_shop,
+            top_damage=self._cached_damage,
         )
 
+        # Template matching every frame (not OCR, fast)
         if self.item_matcher:
             bench_crop = _crop(frame, self.layout.item_bench)
             state.items_on_bench = self.item_matcher.find_matches(bench_crop)
@@ -183,10 +223,9 @@ class GameStateReader:
             state.my_bench = self._detect_bench_champions(frame)
             state.my_board = self._detect_board_champions(frame)
 
+        # Augment names every frame on selection rounds (for rerolls)
         if state.round_number in ("1-5", "2-5", "3-5"):
             state.augment_choices = self._read_augment_names(frame)
-
-        state.top_damage = self._read_top_damage(frame)
 
         return state
 
@@ -273,7 +312,7 @@ class GameStateReader:
         return None
 
     def _read_augment_names(self, frame: np.ndarray) -> list[str]:
-        """OCR the 3 augment card names from the selection screen."""
+        """OCR the 3 augment card names, fuzzy matched against known augments."""
         regions = [
             self.layout.augment_name_0,
             self.layout.augment_name_1,
@@ -286,8 +325,10 @@ class GameStateReader:
                 continue
             text = _ocr_text(crop, scale=3, method="adaptive", psm=7)
             clean = text.strip()
-            if clean:
-                names.append(clean)
+            if not clean:
+                continue
+            matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.5)
+            names.append(matches[0] if matches else clean)
         return names
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
