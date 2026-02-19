@@ -1,3 +1,4 @@
+import logging
 import sys
 import time
 import threading
@@ -167,6 +168,9 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
 def main():
     from PyQt6.QtWidgets import QApplication
 
+    if "--debug" in sys.argv:
+        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s %(message)s",
+                            datefmt="%H:%M:%S")
     use_mock = "--mock" in sys.argv
     mock_image = None
     for arg in sys.argv:

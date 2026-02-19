@@ -1,6 +1,8 @@
+import logging
 import re
 import sqlite3
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher, get_close_matches
@@ -15,6 +17,8 @@ if sys.platform == "win32":
     _win_tesseract = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
     if _win_tesseract.exists():
         pytesseract.pytesseract.tesseract_cmd = str(_win_tesseract)
+
+log = logging.getLogger(__name__)
 
 from .config import (
     DB_PATH, ScreenRegion, TFTLayout,
@@ -199,7 +203,9 @@ class GameStateReader:
 
         # Full text OCR only on round change — run in parallel (tesseract releases GIL)
         if round_changed:
+            log.debug("round change: %s → %s", self._last_round, round_number)
             self._last_round = round_number
+            t0 = time.perf_counter()
             f_gold = self._pool.submit(self._read_gold, frame)
             f_lives = self._pool.submit(self._read_lives, frame)
             f_level = self._pool.submit(self._read_level, frame)
@@ -212,6 +218,11 @@ class GameStateReader:
             self._cached_rerolls = f_rerolls.result()
             self._cached_shop = f_shop.result()
             self._cached_damage = f_damage.result()
+            log.debug("parallel OCR done in %.0fms — gold=%s lives=%s lvl=%s rerolls=%s shop=%s",
+                      (time.perf_counter() - t0) * 1000,
+                      self._cached_gold, self._cached_lives,
+                      self._cached_level, self._cached_rerolls,
+                      self._cached_shop)
 
         state = GameState(
             phase=self._detect_phase(frame),
@@ -263,7 +274,9 @@ class GameStateReader:
                          threshold_val=140, psm=8,
                          whitelist="0123456789")
         digits = re.sub(r"\D", "", text)
-        return int(digits) if digits else None
+        result = int(digits) if digits else None
+        log.debug("ocr gold: raw=%r → %s", text, result)
+        return result
 
     def _read_lives(self, frame: np.ndarray) -> int | None:
         crop = _crop(frame, self.layout.lives_text)
@@ -271,21 +284,25 @@ class GameStateReader:
                          threshold_val=140, psm=7,
                          whitelist="0123456789")
         digits = re.sub(r"\D", "", text)
+        result = None
         if digits:
             val = int(digits[0])
             if 1 <= val <= 3:
-                return val
-        return None
+                result = val
+        log.debug("ocr lives: raw=%r → %s", text, result)
+        return result
 
     def _read_level(self, frame: np.ndarray) -> int | None:
         crop = _crop(frame, self.layout.level_text)
         text = _ocr_text(crop, scale=4, method="adaptive", psm=7)
         digits = re.findall(r"\d+", text)
+        result = None
         if digits:
             val = int(digits[-1])
             if 1 <= val <= 10:
-                return val
-        return None
+                result = val
+        log.debug("ocr level: raw=%r → %s", text, result)
+        return result
 
     def _read_rerolls(self, frame: np.ndarray) -> int | None:
         crop = _crop(frame, self.layout.rerolls_text)
@@ -293,11 +310,13 @@ class GameStateReader:
                          threshold_val=140, psm=8,
                          whitelist="0123456789")
         digits = re.sub(r"\D", "", text)
+        result = None
         if digits:
             val = int(digits)
             if 0 <= val <= 99:
-                return val
-        return None
+                result = val
+        log.debug("ocr rerolls: raw=%r → %s", text, result)
+        return result
 
     # Map displayed path names to trait names
     IONIA_PATH_MAP = {
@@ -348,7 +367,9 @@ class GameStateReader:
         if not clean:
             return None
         matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.6)
-        return matches[0] if matches else None
+        result = matches[0] if matches else None
+        log.debug("ocr augment: raw=%r → %s", clean, result)
+        return result
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
         """Read champion names from 5 shop card slots using multi-pass OCR."""
@@ -389,6 +410,7 @@ class GameStateReader:
                     best_ratio = ratio
                     best_match = matches[0]
 
+        log.debug("ocr shop card: adaptive=%r otsu=%r → %s", clean1, clean2, best_match)
         return best_match
 
     def _detect_bench_champions(self, frame: np.ndarray) -> list[Match]:
@@ -530,4 +552,7 @@ class GameStateReader:
         if digits:
             dmg.amount = int(digits)
 
+        log.debug("ocr damage: champ=%s stars=%d amt_raw=%r amt=%s phys=%.0f%% mag=%.0f%% true=%.0f%%",
+                  dmg.champion, dmg.stars, amt_text, dmg.amount,
+                  dmg.physical_pct * 100, dmg.magic_pct * 100, dmg.true_pct * 100)
         return dmg
