@@ -46,7 +46,7 @@ class TFTLayout:
 
     # Champion bench (taller than item bench to capture full portraits)
     champion_bench: ScreenRegion = field(
-        default_factory=lambda: ScreenRegion(345, 1080, 1635, 165)
+        default_factory=lambda: ScreenRegion(345, 1000, 1635, 120)
     )
 
     # Board hex grid parameters
