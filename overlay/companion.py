@@ -67,8 +67,12 @@ DARK_THEME = """
         border-radius: 4px; padding: 2px 8px;
     }
     QComboBox QAbstractItemView {
-        background-color: #0f3460; color: #e0e0e0;
+        background-color: #000000; color: #e0e0e0;
         selection-background-color: #533483;
+        border: 1px solid #533483;
+    }
+    QComboBox::drop-down {
+        background-color: #0f3460; border: none;
     }
     QSpinBox {
         background-color: #0f3460; color: #e0e0e0; border: 1px solid #533483;
