@@ -36,7 +36,7 @@ BUILTIN_REGION_NAMES = [
     "round_text", "gold_text", "lives_text", "level_text",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
     "item_bench", "item_panel", "champion_bench", "score_display",
-    "board", "shop", "augment_select", "bench",
+    "board", "shop", "augment_select",
 ]
 
 
@@ -183,7 +183,7 @@ class CompanionWindow(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         self._info_label = QLabel("Waiting for game state...")
         self._info_label.setWordWrap(True)
-        self._info_label.setFont(QFont("Consolas", 10))
+        self._info_label.setFont(QFont("Consolas", 13))
         layout.addWidget(self._info_label)
         return frame
 
@@ -196,7 +196,7 @@ class CompanionWindow(QWidget):
 
         # Header
         header = QLabel("Calibration")
-        header.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        header.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
         v.addWidget(header)
 
         # Region selector (built-in + any extra from calibration.json)
@@ -238,7 +238,7 @@ class CompanionWindow(QWidget):
 
         # OCR result
         self._ocr_label = QLabel("")
-        self._ocr_label.setFont(QFont("Consolas", 9))
+        self._ocr_label.setFont(QFont("Consolas", 12))
         self._ocr_label.setWordWrap(True)
         self._ocr_label.setStyleSheet("color: #0f0;")
         v.addWidget(self._ocr_label)
@@ -258,7 +258,7 @@ class CompanionWindow(QWidget):
         spin = QSpinBox()
         spin.setRange(min_val, max_val)
         spin.setSingleStep(1)
-        spin.setFont(QFont("Consolas", 9))
+        spin.setFont(QFont("Consolas", 12))
         spin.valueChanged.connect(self._on_spin_changed)
         return spin
 
@@ -269,7 +269,7 @@ class CompanionWindow(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         self._chat_display = QTextEdit()
         self._chat_display.setReadOnly(True)
-        self._chat_display.setFont(QFont("Consolas", 10))
+        self._chat_display.setFont(QFont("Consolas", 13))
         layout.addWidget(self._chat_display)
         return frame
 
@@ -518,13 +518,16 @@ class CompanionWindow(QWidget):
         return ", ".join(parts)
 
     def update_game_state(self, state, projected_score: int = 0):
-        shop_names = [s for s in (state.shop or []) if s]
+        slots = state.shop or []
+        shop_parts = []
+        for i, name in enumerate(slots):
+            shop_parts.append(f"{i+1}:{name}" if name else f"{i+1}:\u2014")
+        shop_str = "  ".join(shop_parts) or "\u2014"
         items_count = len(state.items_on_bench)
         items_value = items_count * 2500 * max(0, 30 - self._round_to_int(state.round_number))
         board_str = self._format_champions(state.my_board)
         bench_str = self._format_champions(state.my_bench)
         hearts = "\u2665" * (state.lives or 0)
-        shop_str = ", ".join(shop_names) or "\u2014"
         lines = [
             f"Round: {state.round_number or '--'}  "
             f"Gold: {state.gold or '--'}  "
