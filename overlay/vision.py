@@ -130,6 +130,7 @@ class DamageBreakdown:
     physical_pct: float = 0.0  # red pixels
     magic_pct: float = 0.0     # blue pixels
     true_pct: float = 0.0      # white pixels
+    amount: int | None = None   # total damage number
     champion: str | None = None
     stars: int = 0
 
@@ -413,5 +414,14 @@ class GameStateReader:
             dmg.stars = 2
         elif pip_total > 5:
             dmg.stars = 1
+
+        # OCR the damage number
+        amt_crop = _crop(frame, self.layout.dmg_amount)
+        amt_text = _ocr_text(amt_crop, scale=5, method="threshold",
+                             threshold_val=140, psm=8,
+                             whitelist="0123456789")
+        digits = re.sub(r"\D", "", amt_text)
+        if digits:
+            dmg.amount = int(digits)
 
         return dmg

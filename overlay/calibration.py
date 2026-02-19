@@ -29,6 +29,7 @@ def save_calibration(path: Path, layout: TFTLayout) -> None:
             "dmg_champ": _region_to_dict(layout.dmg_champ),
             "dmg_stars": _region_to_dict(layout.dmg_stars),
             "dmg_bar": _region_to_dict(layout.dmg_bar),
+            "dmg_amount": _region_to_dict(layout.dmg_amount),
             "score_display": _region_to_dict(layout.score_display),
             "augment_select": _region_to_dict(layout.augment_select),
             "champion_bench": _region_to_dict(layout.champion_bench),

@@ -30,6 +30,7 @@ class TFTLayout:
     dmg_champ: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 750, 60, 60))
     dmg_stars: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 810, 60, 20))
     dmg_bar: ScreenRegion = field(default_factory=lambda: ScreenRegion(660, 770, 340, 20))
+    dmg_amount: ScreenRegion = field(default_factory=lambda: ScreenRegion(660, 750, 100, 20))
     score_display: ScreenRegion = field(default_factory=lambda: ScreenRegion(2276, 378, 214, 91))
     augment_select: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
 
