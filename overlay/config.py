@@ -26,6 +26,7 @@ class TFTLayout:
     # Calibrated from actual screenshot at 2560x1440
     board: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
     item_bench: ScreenRegion = field(default_factory=lambda: ScreenRegion(345, 1165, 1635, 55))
+    trait_panel: ScreenRegion = field(default_factory=lambda: ScreenRegion(1980, 1165, 300, 55))
     item_panel: ScreenRegion = field(default_factory=lambda: ScreenRegion(0, 312, 151, 733))
     score_display: ScreenRegion = field(default_factory=lambda: ScreenRegion(2276, 378, 214, 91))
     shop: ScreenRegion = field(default_factory=lambda: ScreenRegion(590, 1260, 1400, 170))

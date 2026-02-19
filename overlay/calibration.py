@@ -24,6 +24,7 @@ def save_calibration(path: Path, layout: TFTLayout) -> None:
             "level_text": _region_to_dict(layout.level_text),
             "board": _region_to_dict(layout.board),
             "item_bench": _region_to_dict(layout.item_bench),
+            "trait_panel": _region_to_dict(layout.trait_panel),
             "item_panel": _region_to_dict(layout.item_panel),
             "score_display": _region_to_dict(layout.score_display),
             "shop": _region_to_dict(layout.shop),
