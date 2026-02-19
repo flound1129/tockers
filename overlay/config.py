@@ -3,6 +3,7 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "tft.db"
 REFERENCES_DIR = Path(__file__).parent.parent / "references"
+CALIBRATION_PATH = Path(__file__).parent.parent / "calibration.json"
 
 
 @dataclass
@@ -79,6 +80,41 @@ class TFTLayout:
                     self.board_hex_portrait_h,
                 ))
         return regions
+
+    @classmethod
+    def from_calibration(cls, path: Path | None = None) -> "TFTLayout":
+        """Load layout from calibration.json, falling back to hardcoded defaults."""
+        if path is None:
+            path = CALIBRATION_PATH
+        if not path.exists():
+            return cls()
+
+        from .calibration import load_calibration, _dict_to_region
+        try:
+            data = load_calibration(path)
+        except Exception:
+            return cls()
+
+        layout = cls()
+        if "resolution" in data:
+            layout.resolution = tuple(data["resolution"])
+
+        regions = data.get("regions", {})
+        for name, d in regions.items():
+            if hasattr(layout, name):
+                setattr(layout, name, _dict_to_region(d))
+
+        if "shop_card_names" in data:
+            layout.shop_card_names = [_dict_to_region(d) for d in data["shop_card_names"]]
+
+        hg = data.get("hex_grid", {})
+        if "origin" in hg:
+            layout.board_hex_origin = tuple(hg["origin"])
+        for key in ("cols", "rows", "col_width", "row_height", "row_offset", "portrait_h"):
+            if key in hg:
+                setattr(layout, f"board_hex_{key}", hg[key])
+
+        return layout
 
 
 CAPTURE_FPS = 1  # Frames per second during planning phase

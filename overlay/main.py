@@ -172,7 +172,7 @@ def main():
             use_mock = True
 
     app = QApplication(sys.argv)
-    layout = TFTLayout()
+    layout = TFTLayout.from_calibration()
     item_m, aug_m, champ_m = create_matchers()
     reader = GameStateReader(
         layout,

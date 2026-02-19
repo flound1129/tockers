@@ -3,19 +3,41 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pytesseract
-from difflib import SequenceMatcher, get_close_matches
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
-    QLineEdit, QPushButton, QLabel, QFrame,
+    QLineEdit, QPushButton, QLabel, QFrame, QComboBox,
+    QSpinBox, QGridLayout, QCheckBox, QApplication,
 )
-from PyQt6.QtCore import QThread, Qt, QRect
+from PyQt6.QtCore import QThread, Qt, QRect, QTimer
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtCore import pyqtSignal as Signal
-from PyQt6.QtGui import QFont, QPainter, QPen, QColor
+from PyQt6.QtGui import QFont, QPainter, QPen, QColor, QImage, QPixmap
 
-from overlay.vision import _load_champion_names
+from overlay.config import ScreenRegion, CALIBRATION_PATH
+from overlay.vision import _load_champion_names, _ocr_text
+
+
+# Which regions get live OCR preview, with their OCR parameters
+OCR_CONFIGS = {
+    "round_text":  {"scale": 3, "method": "threshold", "threshold_val": 140, "psm": 7},
+    "gold_text":   {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 8, "whitelist": "0123456789"},
+    "lives_text":  {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 7, "whitelist": "0123456789"},
+    "level_text":  {"scale": 4, "method": "adaptive", "psm": 7},
+    "shop_card_0": {"scale": 4, "method": "adaptive", "psm": 11},
+    "shop_card_1": {"scale": 4, "method": "adaptive", "psm": 11},
+    "shop_card_2": {"scale": 4, "method": "adaptive", "psm": 11},
+    "shop_card_3": {"scale": 4, "method": "adaptive", "psm": 11},
+    "shop_card_4": {"scale": 4, "method": "adaptive", "psm": 11},
+}
+
+# All calibratable region names, in display order
+REGION_NAMES = [
+    "round_text", "gold_text", "lives_text", "level_text",
+    "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
+    "item_bench", "item_panel", "champion_bench", "score_display",
+    "board", "shop", "augment_select", "bench",
+]
 
 
 class RegionOverlay(QWidget):
@@ -76,6 +98,30 @@ class _AiWorker(QThread):
             self.error.emit(str(e))
 
 
+class _OcrWorker(QThread):
+    """Run OCR on a crop image in a background thread."""
+    finished = Signal(str)  # ocr result text
+
+    def __init__(self, crop: np.ndarray, ocr_config: dict):
+        super().__init__()
+        self._crop = crop
+        self._config = ocr_config
+
+    def run(self):
+        try:
+            text = _ocr_text(
+                self._crop,
+                scale=self._config.get("scale", 4),
+                method=self._config.get("method", "threshold"),
+                threshold_val=self._config.get("threshold_val", 140),
+                psm=self._config.get("psm", 7),
+                whitelist=self._config.get("whitelist", ""),
+            )
+            self.finished.emit(text)
+        except Exception as e:
+            self.finished.emit(f"[error: {e}]")
+
+
 class CompanionWindow(QWidget):
     def __init__(self, engine, layout=None, parent=None):
         super().__init__(parent)
@@ -84,19 +130,27 @@ class CompanionWindow(QWidget):
         self._history: list[dict] = []
         self._current_game_state_text = ""
         self._worker: _AiWorker | None = None
+        self._ocr_worker: _OcrWorker | None = None
         self._last_frame: np.ndarray | None = None
         self._champ_names: list[str] = _load_champion_names()
         self._region_overlay = RegionOverlay()
+        self._ocr_debounce = QTimer()
+        self._ocr_debounce.setSingleShot(True)
+        self._ocr_debounce.setInterval(500)
+        self._ocr_debounce.timeout.connect(self._run_ocr_preview)
         self.setWindowTitle("Tocker's Companion")
-        self.resize(400, 700)
+        self.resize(420, 800)
         self.move(50, 50)
         self._init_ui()
 
     def closeEvent(self, event):
-        """Ensure the worker thread is stopped before the window is destroyed."""
         if self._worker is not None and self._worker.isRunning():
             self._worker.quit()
             self._worker.wait(2000)
+        if self._ocr_worker is not None and self._ocr_worker.isRunning():
+            self._ocr_worker.quit()
+            self._ocr_worker.wait(1000)
+        self._region_overlay.close()
         super().closeEvent(event)
 
     def __del__(self):
@@ -104,18 +158,22 @@ class CompanionWindow(QWidget):
             self._worker.quit()
             self._worker.wait(2000)
 
+    # ── UI setup ──────────────────────────────────────────────────────
+
     def _init_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
         self.game_info_panel = self._build_game_info()
+        self.calibration_panel = self._build_calibration()
         self.chat_panel = self._build_chat()
         self.input_bar = self._build_input()
 
         layout.addWidget(self.game_info_panel, stretch=2)
-        layout.addWidget(self.chat_panel, stretch=5)
-        layout.addWidget(self.input_bar, stretch=1)
+        layout.addWidget(self.calibration_panel, stretch=3)
+        layout.addWidget(self.chat_panel, stretch=4)
+        layout.addWidget(self.input_bar, stretch=0)
         self.setLayout(layout)
 
     def _build_game_info(self) -> QFrame:
@@ -128,6 +186,79 @@ class CompanionWindow(QWidget):
         self._info_label.setFont(QFont("Consolas", 10))
         layout.addWidget(self._info_label)
         return frame
+
+    def _build_calibration(self) -> QFrame:
+        frame = QFrame()
+        frame.setFrameShape(QFrame.Shape.StyledPanel)
+        v = QVBoxLayout(frame)
+        v.setContentsMargins(6, 6, 6, 6)
+        v.setSpacing(4)
+
+        # Header
+        header = QLabel("Calibration")
+        header.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        v.addWidget(header)
+
+        # Region selector
+        self._region_combo = QComboBox()
+        self._region_combo.addItems(REGION_NAMES)
+        self._region_combo.currentTextChanged.connect(self._on_region_changed)
+        v.addWidget(self._region_combo)
+
+        # Spin boxes in 2x2 grid
+        grid = QGridLayout()
+        grid.setSpacing(4)
+        self._spin_x = self._make_spin("X:", 0, 2560)
+        self._spin_y = self._make_spin("Y:", 0, 1440)
+        self._spin_w = self._make_spin("W:", 1, 2560)
+        self._spin_h = self._make_spin("H:", 1, 1440)
+        grid.addWidget(QLabel("X:"), 0, 0)
+        grid.addWidget(self._spin_x, 0, 1)
+        grid.addWidget(QLabel("Y:"), 0, 2)
+        grid.addWidget(self._spin_y, 0, 3)
+        grid.addWidget(QLabel("W:"), 1, 0)
+        grid.addWidget(self._spin_w, 1, 1)
+        grid.addWidget(QLabel("H:"), 1, 2)
+        grid.addWidget(self._spin_h, 1, 3)
+        v.addLayout(grid)
+
+        # Link shop cards checkbox
+        self._link_cards_cb = QCheckBox("Link shop cards (Y/H)")
+        self._link_cards_cb.setChecked(True)
+        v.addWidget(self._link_cards_cb)
+
+        # Crop preview
+        self._crop_preview = QLabel()
+        self._crop_preview.setFixedHeight(80)
+        self._crop_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._crop_preview.setStyleSheet("background: #222; border: 1px solid #555;")
+        v.addWidget(self._crop_preview)
+
+        # OCR result
+        self._ocr_label = QLabel("")
+        self._ocr_label.setFont(QFont("Consolas", 9))
+        self._ocr_label.setWordWrap(True)
+        self._ocr_label.setStyleSheet("color: #0f0;")
+        v.addWidget(self._ocr_label)
+
+        # Save button
+        self._save_btn = QPushButton("Save calibration.json")
+        self._save_btn.clicked.connect(self._on_save_calibration)
+        v.addWidget(self._save_btn)
+
+        # Load initial region values
+        self._loading_region = False
+        self._on_region_changed(self._region_combo.currentText())
+
+        return frame
+
+    def _make_spin(self, label: str, min_val: int, max_val: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(min_val, max_val)
+        spin.setSingleStep(1)
+        spin.setFont(QFont("Consolas", 9))
+        spin.valueChanged.connect(self._on_spin_changed)
+        return spin
 
     def _build_chat(self) -> QFrame:
         frame = QFrame()
@@ -150,21 +281,161 @@ class CompanionWindow(QWidget):
         self._send_button = QPushButton("Send \u23ce")
         self._send_button.clicked.connect(self._on_send)
         self._input_field.returnPressed.connect(self._on_send)
-        self._debug_button = QPushButton("Debug Shop")
-        self._debug_button.clicked.connect(self._on_debug_shop)
-        self._debug_bench_button = QPushButton("Debug Bench")
-        self._debug_bench_button.clicked.connect(self._on_debug_bench)
-        self._debug_board_button = QPushButton("Debug Board")
-        self._debug_board_button.clicked.connect(self._on_debug_board)
-        self._debug_all_button = QPushButton("Debug All")
-        self._debug_all_button.clicked.connect(self._on_debug_all)
         layout.addWidget(self._input_field, stretch=4)
         layout.addWidget(self._send_button, stretch=1)
-        layout.addWidget(self._debug_button, stretch=1)
-        layout.addWidget(self._debug_bench_button, stretch=1)
-        layout.addWidget(self._debug_board_button, stretch=1)
-        layout.addWidget(self._debug_all_button, stretch=1)
         return frame
+
+    # ── Calibration logic ─────────────────────────────────────────────
+
+    def _get_region(self, name: str) -> ScreenRegion | None:
+        if self._layout is None:
+            return None
+        if name.startswith("shop_card_"):
+            idx = int(name.split("_")[-1])
+            return self._layout.shop_card_names[idx]
+        return getattr(self._layout, name, None)
+
+    def _set_region(self, name: str, region: ScreenRegion):
+        if self._layout is None:
+            return
+        if name.startswith("shop_card_"):
+            idx = int(name.split("_")[-1])
+            self._layout.shop_card_names[idx] = region
+        else:
+            setattr(self._layout, name, region)
+
+    def _on_region_changed(self, name: str):
+        region = self._get_region(name)
+        if region is None:
+            return
+        self._loading_region = True
+        self._spin_x.setValue(region.x)
+        self._spin_y.setValue(region.y)
+        self._spin_w.setValue(region.w)
+        self._spin_h.setValue(region.h)
+        self._loading_region = False
+        self._update_preview()
+        self._update_overlay_rect()
+
+    def _on_spin_changed(self):
+        if self._loading_region or self._layout is None:
+            return
+        name = self._region_combo.currentText()
+        new_region = ScreenRegion(
+            self._spin_x.value(), self._spin_y.value(),
+            self._spin_w.value(), self._spin_h.value(),
+        )
+        self._set_region(name, new_region)
+
+        # Link shop cards Y/H when checkbox is checked
+        if (name.startswith("shop_card_") and self._link_cards_cb.isChecked()):
+            for i in range(5):
+                card_name = f"shop_card_{i}"
+                if card_name != name:
+                    old = self._get_region(card_name)
+                    if old is not None:
+                        self._set_region(card_name, ScreenRegion(
+                            old.x, new_region.y, old.w, new_region.h,
+                        ))
+
+        self._update_preview()
+        self._update_overlay_rect()
+        # Debounce OCR
+        self._ocr_debounce.start()
+
+    def _update_preview(self):
+        """Show the current crop from the live frame in the preview label."""
+        if self._last_frame is None:
+            self._crop_preview.setText("No frame")
+            return
+        name = self._region_combo.currentText()
+        region = self._get_region(name)
+        if region is None:
+            return
+
+        frame = self._last_frame
+        fh, fw = frame.shape[:2]
+        # Clamp to frame bounds
+        x1 = max(0, min(region.x, fw - 1))
+        y1 = max(0, min(region.y, fh - 1))
+        x2 = max(x1 + 1, min(region.x + region.w, fw))
+        y2 = max(y1 + 1, min(region.y + region.h, fh))
+        crop = frame[y1:y2, x1:x2]
+
+        # Convert BGR -> RGB -> QPixmap, scaled to fit
+        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        qimg = QImage(rgb.data, w, h, w * ch, QImage.Format.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimg)
+        scaled = pixmap.scaled(
+            self._crop_preview.width(), self._crop_preview.height(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._crop_preview.setPixmap(scaled)
+
+    def _run_ocr_preview(self):
+        """Run OCR on the current crop (called after debounce timer fires)."""
+        name = self._region_combo.currentText()
+        if name not in OCR_CONFIGS or self._last_frame is None:
+            self._ocr_label.setText("")
+            return
+
+        region = self._get_region(name)
+        if region is None:
+            return
+
+        frame = self._last_frame
+        fh, fw = frame.shape[:2]
+        x1 = max(0, min(region.x, fw - 1))
+        y1 = max(0, min(region.y, fh - 1))
+        x2 = max(x1 + 1, min(region.x + region.w, fw))
+        y2 = max(y1 + 1, min(region.y + region.h, fh))
+        crop = frame[y1:y2, x1:x2]
+
+        # Run OCR in background thread
+        if self._ocr_worker is not None and self._ocr_worker.isRunning():
+            return
+        self._ocr_worker = _OcrWorker(crop.copy(), OCR_CONFIGS[name])
+        self._ocr_worker.finished.connect(
+            self._on_ocr_result, Qt.ConnectionType.QueuedConnection
+        )
+        self._ocr_worker.start()
+
+    @pyqtSlot(str)
+    def _on_ocr_result(self, text: str):
+        self._ocr_label.setText(f"OCR: {text}")
+
+    def _update_overlay_rect(self):
+        """Show a red rectangle on the game screen for the selected region."""
+        if self._layout is None:
+            return
+        name = self._region_combo.currentText()
+        region = self._get_region(name)
+        if region is None:
+            self._region_overlay.set_regions([])
+            return
+
+        screen = QApplication.primaryScreen()
+        screen_w = screen.geometry().width()
+        screen_h = screen.geometry().height()
+        game_w, game_h = self._layout.resolution
+        gx = max(0, (screen_w - game_w) // 2)
+        gy = max(0, (screen_h - game_h) // 2)
+
+        qt_rect = QRect(gx + region.x, gy + region.y, region.w, region.h)
+        self._region_overlay.set_regions([(qt_rect, name)])
+        self._region_overlay.setGeometry(0, 0, screen_w, screen_h)
+        self._region_overlay.show()
+
+    def _on_save_calibration(self):
+        if self._layout is None:
+            return
+        from overlay.calibration import save_calibration
+        save_calibration(CALIBRATION_PATH, self._layout)
+        self._append_message("Cal", f"Saved to {CALIBRATION_PATH}")
+
+    # ── Chat / AI ─────────────────────────────────────────────────────
 
     def _on_send(self):
         text = self._input_field.text().strip()
@@ -222,322 +493,18 @@ class CompanionWindow(QWidget):
         self._chat_display.setPlainText(text)
         self._append_message("AI", f"Error: {error}")
 
+    # ── Frame + game state ────────────────────────────────────────────
+
     def set_frame(self, frame: np.ndarray) -> None:
-        """Store the latest captured frame for debug use."""
+        """Store the latest captured frame and refresh calibration preview."""
         self._last_frame = frame
-
-    def _on_debug_shop(self):
-        if self._last_frame is None or self._layout is None:
-            self._append_message("Debug", "No frame captured yet.")
-            return
-
-        frame = self._last_frame
-        out_dir = Path(__file__).parent.parent / "debug_crops"
-        out_dir.mkdir(exist_ok=True)
-
-        report_lines = [f"Frame: {frame.shape[1]}x{frame.shape[0]}"]
-        self._append_message("Debug", report_lines[0])
-
-        for i, region in enumerate(self._layout.shop_card_names):
-            crop = frame[region.y:region.y + region.h,
-                         region.x:region.x + region.w]
-            cv2.imwrite(str(out_dir / f"shop_slot_{i}.png"), crop)
-
-            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-            brightness = gray.mean()
-            if brightness < 25:
-                line = f"Slot {i}: EMPTY (brightness {brightness:.0f})"
-                self._append_message("Debug", line)
-                report_lines.append(line)
-                continue
-
-            # Adaptive pass (scale 4)
-            scaled_a = cv2.resize(gray, None, fx=4, fy=4,
-                                  interpolation=cv2.INTER_CUBIC)
-            proc_a = cv2.adaptiveThreshold(
-                scaled_a, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY, 31, -10)
-            raw_a = pytesseract.image_to_string(
-                proc_a, config="--psm 11").strip()
-            first_a = raw_a.split("\n")[0].strip() if raw_a else ""
-            clean_a = re.sub(r"[^a-zA-Z\s']", "", first_a).strip()
-            cv2.imwrite(str(out_dir / f"shop_slot_{i}_adaptive.png"), proc_a)
-
-            # OTSU pass (scale 3)
-            scaled_o = cv2.resize(gray, None, fx=3, fy=3,
-                                  interpolation=cv2.INTER_CUBIC)
-            _, proc_o = cv2.threshold(
-                scaled_o, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            raw_o = pytesseract.image_to_string(
-                proc_o, config="--psm 11").strip()
-            first_o = raw_o.split("\n")[0].strip() if raw_o else ""
-            clean_o = re.sub(r"[^a-zA-Z\s']", "", first_o).strip()
-            cv2.imwrite(str(out_dir / f"shop_slot_{i}_otsu.png"), proc_o)
-
-            # Fuzzy match
-            best_name, best_ratio = None, 0.0
-            for raw in [clean_a, clean_o]:
-                if not raw:
-                    continue
-                close = get_close_matches(
-                    raw, self._champ_names, n=1, cutoff=0.3)
-                if close:
-                    ratio = SequenceMatcher(
-                        None, raw.lower(), close[0].lower()).ratio()
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_name = close[0]
-
-            line = (f"Slot {i}: brightness={brightness:.0f} "
-                    f"adap_raw='{first_a}' adap_clean='{clean_a}' "
-                    f"otsu_raw='{first_o}' otsu_clean='{clean_o}' "
-                    f"-> {best_name} ({best_ratio:.2f})")
-            self._append_message("Debug", line)
-            report_lines.append(line)
-
-        # Write report for remote debugging
-        report_path = out_dir / "report.txt"
-        report_path.write_text("\n".join(report_lines), encoding="utf-8")
-        self._append_message("Debug", f"Crops + report saved to {out_dir}")
-
-    def _on_debug_all(self):
-        """Show all detection regions on the game overlay."""
-        if self._last_frame is None or self._layout is None:
-            self._append_message("Debug", "No frame captured yet.")
-            return
-
-        from overlay.config import ScreenRegion
-        regions = []
-
-        # Board hex grid
-        cols = self._layout.board_hex_cols
-        for idx, region in enumerate(self._layout.board_hex_regions):
-            row = idx // cols
-            col = idx % cols
-            regions.append((region, f"b{row},{col}"))
-
-        # Champion bench
-        regions.append((self._layout.champion_bench, "bench"))
-
-        # Item bench
-        regions.append((self._layout.item_bench, "items"))
-
-        # Shop card names
-        for i, region in enumerate(self._layout.shop_card_names):
-            regions.append((region, f"shop{i}"))
-
-        # Item panel (left side)
-        regions.append((self._layout.item_panel, "item_panel"))
-
-        # Score display
-        regions.append((self._layout.score_display, "score"))
-
-        # OCR regions
-        regions.append((self._layout.round_text, "round"))
-        regions.append((self._layout.gold_text, "gold"))
-        regions.append((self._layout.lives_text, "lives"))
-        regions.append((self._layout.level_text, "level"))
-
-        self._show_debug_regions(regions)
-        self._append_message("Debug", f"Showing {len(regions)} regions on overlay")
-
-    def _show_debug_regions(self, regions: list[tuple]):
-        """Show red rectangles on the game overlay.
-
-        regions: list of (ScreenRegion, label) tuples in game coordinates.
-        """
-        from PyQt6.QtWidgets import QApplication
-        screen = QApplication.primaryScreen()
-        screen_w = screen.geometry().width()
-        screen_h = screen.geometry().height()
-        game_w, game_h = self._layout.resolution
-        # Game is centered on screen (for ultrawide)
-        gx = (screen_w - game_w) // 2
-        gy = (screen_h - game_h) // 2
-        gy = max(0, gy)
-        gx = max(0, gx)
-
-        qt_regions = []
-        for sr, label in regions:
-            qt_regions.append((
-                QRect(gx + sr.x, gy + sr.y, sr.w, sr.h),
-                label,
-            ))
-
-        self._region_overlay.set_regions(qt_regions)
-        self._region_overlay.setGeometry(0, 0, screen_w, screen_h)
-        self._region_overlay.show()
-
-    def _on_debug_bench(self):
-        if self._last_frame is None or self._layout is None:
-            self._append_message("Debug", "No frame captured yet.")
-            return
-
-        frame = self._last_frame
-        out_dir = Path(__file__).parent.parent / "debug_crops"
-        out_dir.mkdir(exist_ok=True)
-
-        region = self._layout.champion_bench
-        bench_crop = frame[region.y:region.y + region.h,
-                           region.x:region.x + region.w]
-        cv2.imwrite(str(out_dir / "bench_full.png"), bench_crop)
-
-        report_lines = [
-            f"Frame: {frame.shape[1]}x{frame.shape[0]}",
-            f"Bench region: x={region.x} y={region.y} w={region.w} h={region.h}",
-        ]
-
-        # Divide bench into slots (9 bench slots, evenly spaced)
-        num_slots = 9
-        slot_w = region.w // num_slots
-        annotated = bench_crop.copy()
-
-        for i in range(num_slots):
-            sx = i * slot_w
-            slot_crop = bench_crop[:, sx:sx + slot_w]
-            cv2.imwrite(str(out_dir / f"bench_slot_{i}.png"), slot_crop)
-
-            brightness = np.mean(cv2.cvtColor(slot_crop, cv2.COLOR_BGR2GRAY))
-            line = f"Slot {i}: x={region.x + sx} brightness={brightness:.0f}"
-            report_lines.append(line)
-
-            # Draw grid lines on annotated image
-            cv2.rectangle(annotated, (sx, 0), (sx + slot_w, region.h),
-                          (0, 255, 0), 1)
-            cv2.putText(annotated, f"{i}", (sx + 5, 15),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-
-        cv2.imwrite(str(out_dir / "bench_annotated.png"), annotated)
-
-        # Draw bench region on full frame in red
-        frame_annotated = frame.copy()
-        RED = (0, 0, 255)
-        cv2.rectangle(frame_annotated,
-                       (region.x, region.y),
-                       (region.x + region.w, region.y + region.h),
-                       RED, 2)
-        cv2.putText(frame_annotated, "champion_bench",
-                    (region.x + 5, region.y - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, RED, 2)
-        # Also draw slot dividers
-        for i in range(num_slots):
-            sx = region.x + i * slot_w
-            cv2.line(frame_annotated, (sx, region.y), (sx, region.y + region.h),
-                     RED, 1)
-        cv2.imwrite(str(out_dir / "bench_regions.png"), frame_annotated)
-
-        report_path = out_dir / "bench_report.txt"
-        report_path.write_text("\n".join(report_lines), encoding="utf-8")
-
-        # Show red rectangles on game overlay
-        from overlay.config import ScreenRegion
-        overlay_regions = [(region, "bench")]
-        for i in range(num_slots):
-            sx = region.x + i * slot_w
-            overlay_regions.append((
-                ScreenRegion(sx, region.y, slot_w, region.h), f"{i}"
-            ))
-        self._show_debug_regions(overlay_regions)
-        self._append_message("Debug", f"Bench crops saved ({num_slots} slots)")
-
-    def _on_debug_board(self):
-        if self._last_frame is None or self._layout is None:
-            self._append_message("Debug", "No frame captured yet.")
-            return
-
-        frame = self._last_frame
-        out_dir = Path(__file__).parent.parent / "debug_crops"
-        out_dir.mkdir(exist_ok=True)
-
-        hex_regions = self._layout.board_hex_regions
-        ox, oy = self._layout.board_hex_origin
-        # Compute bounding box for full board crop
-        max_x = max(r.x + r.w for r in hex_regions)
-        max_y = max(r.y + r.h for r in hex_regions)
-        board_crop = frame[oy:max_y, ox:max_x]
-        cv2.imwrite(str(out_dir / "board_full.png"), board_crop)
-
-        report_lines = [
-            f"Frame: {frame.shape[1]}x{frame.shape[0]}",
-            f"Board origin: ({ox}, {oy})",
-            f"Hex cells: {len(hex_regions)} "
-            f"({self._layout.board_hex_rows}x{self._layout.board_hex_cols})",
-        ]
-
-        annotated = board_crop.copy()
-        cols = self._layout.board_hex_cols
-
-        for idx, region in enumerate(hex_regions):
-            row = idx // cols
-            col = idx % cols
-            cell_crop = frame[region.y:region.y + region.h,
-                              region.x:region.x + region.w]
-            cv2.imwrite(str(out_dir / f"board_r{row}_c{col}.png"), cell_crop)
-
-            brightness = np.mean(cv2.cvtColor(cell_crop, cv2.COLOR_BGR2GRAY))
-            line = (f"Cell r{row}c{col}: x={region.x} y={region.y} "
-                    f"brightness={brightness:.0f}")
-            report_lines.append(line)
-
-            # Draw rectangle on annotated image (offset from board origin)
-            rx = region.x - ox
-            ry = region.y - oy
-            cv2.rectangle(annotated, (rx, ry), (rx + region.w, ry + region.h),
-                          (0, 255, 0), 1)
-            cv2.putText(annotated, f"{row},{col}", (rx + 3, ry + 12),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0), 1)
-
-        cv2.imwrite(str(out_dir / "board_annotated.png"), annotated)
-
-        # Draw hex grid on full frame in red
-        frame_annotated = frame.copy()
-        RED = (0, 0, 255)
-        for idx, region in enumerate(hex_regions):
-            row = idx // cols
-            col = idx % cols
-            cv2.rectangle(frame_annotated,
-                           (region.x, region.y),
-                           (region.x + region.w, region.y + region.h),
-                           RED, 2)
-            cv2.putText(frame_annotated, f"{row},{col}",
-                        (region.x + 3, region.y + 14),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, RED, 1)
-        # Also draw bench region for context
-        bench = self._layout.champion_bench
-        cv2.rectangle(frame_annotated,
-                       (bench.x, bench.y),
-                       (bench.x + bench.w, bench.y + bench.h),
-                       RED, 2)
-        cv2.putText(frame_annotated, "bench",
-                    (bench.x + 5, bench.y - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, RED, 2)
-        cv2.imwrite(str(out_dir / "board_regions.png"), frame_annotated)
-
-        report_path = out_dir / "board_report.txt"
-        report_path.write_text("\n".join(report_lines), encoding="utf-8")
-
-        # Show red rectangles on game overlay
-        overlay_regions = []
-        for idx, region in enumerate(hex_regions):
-            row = idx // cols
-            col = idx % cols
-            overlay_regions.append((region, f"{row},{col}"))
-        bench = self._layout.champion_bench
-        overlay_regions.append((bench, "bench"))
-        self._show_debug_regions(overlay_regions)
-
-        self._append_message(
-            "Debug",
-            f"Board crops saved ({len(hex_regions)} cells, "
-            f"{self._layout.board_hex_rows}x{self._layout.board_hex_cols})"
-        )
+        self._update_preview()
 
     @staticmethod
     def _format_champions(champions: list) -> str:
-        """Format champion list with star indicators: 'Viego★★, Jhin★'."""
         if not champions:
-            return "—"
-        star_char = "★"
+            return "\u2014"
+        star_char = "\u2605"
         parts = []
         for m in champions:
             stars = star_char * m.stars if m.stars > 0 else ""
@@ -545,27 +512,27 @@ class CompanionWindow(QWidget):
         return ", ".join(parts)
 
     def update_game_state(self, state, projected_score: int = 0):
-        """Refresh the game info panel. Safe to call from any thread via signal."""
         shop_names = [s for s in (state.shop or []) if s]
         items_count = len(state.items_on_bench)
         items_value = items_count * 2500 * max(0, 30 - self._round_to_int(state.round_number))
         board_str = self._format_champions(state.my_board)
         bench_str = self._format_champions(state.my_bench)
+        hearts = "\u2665" * (state.lives or 0)
+        shop_str = ", ".join(shop_names) or "\u2014"
         lines = [
             f"Round: {state.round_number or '--'}  "
             f"Gold: {state.gold or '--'}  "
             f"Level: {state.level or '--'}  "
-            f"Lives: {'♥' * (state.lives or 0)}",
+            f"Lives: {hearts}",
             f"Board ({len(state.my_board)}): {board_str}",
             f"Bench ({len(state.my_bench)}): {bench_str}",
-            f"Shop: {', '.join(shop_names) or '—'}",
+            f"Shop: {shop_str}",
             f"Items on bench: {items_count}  (+{items_value:,} pts)",
             f"Projected score: {projected_score:,}",
         ]
         self._info_label.setText("\n".join(lines))
 
     def _round_to_int(self, round_str: str | None) -> int:
-        """Convert '2-5' to absolute round number (15)."""
         if not round_str or "-" not in round_str:
             return 0
         try:
