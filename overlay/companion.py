@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont, QPainter, QPen, QColor, QImage, QPixmap
 
 from overlay.config import ScreenRegion, CALIBRATION_PATH
 from overlay.vision import _load_champion_names, _ocr_text
+from overlay.bridge import start_bridge, PROJECT_ROOT
 
 
 # Which regions get live OCR preview, with their OCR parameters
@@ -141,6 +142,7 @@ class CompanionWindow(QWidget):
         self._ionia_locked: bool = False
         self._champ_names: list[str] = _load_champion_names()
         self._region_overlay = RegionOverlay()
+        self._bridge_server = start_bridge()
         self._ocr_debounce = QTimer()
         self._ocr_debounce.setSingleShot(True)
         self._ocr_debounce.setInterval(500)
@@ -158,6 +160,8 @@ class CompanionWindow(QWidget):
             self._ocr_worker.quit()
             self._ocr_worker.wait(1000)
         self._region_overlay.close()
+        if self._bridge_server is not None:
+            self._bridge_server.close()
         super().closeEvent(event)
 
     def __del__(self):
@@ -265,8 +269,11 @@ class CompanionWindow(QWidget):
         self._save_btn.clicked.connect(self._on_save_calibration)
         self._show_all_btn = QPushButton("Show All")
         self._show_all_btn.clicked.connect(self._on_show_all_regions)
+        self._debug_btn = QPushButton("Debug")
+        self._debug_btn.clicked.connect(self._on_debug_region)
         btn_row.addWidget(self._save_btn)
         btn_row.addWidget(self._show_all_btn)
+        btn_row.addWidget(self._debug_btn)
         v.addLayout(btn_row)
 
         # Load initial region values
@@ -491,6 +498,30 @@ class CompanionWindow(QWidget):
 
         # Auto-hide after 10 seconds
         QTimer.singleShot(10000, self._region_overlay.hide)
+
+    def _on_debug_region(self):
+        """Save a screenshot crop of the current region to debug_crops/."""
+        if self._last_frame is None:
+            self._append_message("Debug", "No frame available")
+            return
+        name = self._region_combo.currentText()
+        region = self._get_region(name)
+        if region is None:
+            return
+
+        frame = self._last_frame
+        fh, fw = frame.shape[:2]
+        x1 = max(0, min(region.x, fw - 1))
+        y1 = max(0, min(region.y, fh - 1))
+        x2 = max(x1 + 1, min(region.x + region.w, fw))
+        y2 = max(y1 + 1, min(region.y + region.h, fh))
+        crop = frame[y1:y2, x1:x2]
+
+        out_dir = PROJECT_ROOT / "debug_crops"
+        out_dir.mkdir(exist_ok=True)
+        out_path = out_dir / f"{name}.png"
+        cv2.imwrite(str(out_path), crop)
+        self._append_message("Debug", f"Saved {name}.png ({crop.shape[1]}x{crop.shape[0]})")
 
     # ── Chat / AI ─────────────────────────────────────────────────────
 
