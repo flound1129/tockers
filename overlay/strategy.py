@@ -91,11 +91,12 @@ class StrategyEngine:
 
     def projected_score(self, current_round: int, num_components: int,
                         gold: int, surviving_units: int) -> dict:
-        rounds_remaining = 30 - current_round
-        component_pts = self.component_score(num_components, rounds_remaining)
-        interest_pts = self.interest(gold) * 1000 * rounds_remaining
-        surviving_pts = surviving_units * 250 * rounds_remaining
-        time_pts = 2750 * rounds_remaining
+        """Project final 30-round score assuming current state persists."""
+        total_rounds = 30
+        component_pts = self.component_score(num_components, total_rounds)
+        interest_pts = self.interest(gold) * 1000 * total_rounds
+        surviving_pts = surviving_units * 250 * total_rounds
+        time_pts = 2750 * total_rounds
         return {
             "component_pts": component_pts,
             "interest_pts": interest_pts,

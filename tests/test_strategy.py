@@ -43,12 +43,13 @@ def test_projected_score(engine):
     result = engine.projected_score(
         current_round=10, num_components=5, gold=30, surviving_units=6
     )
-    # 5 * 2500 * 20 = 250000
-    assert result["component_pts"] == 250_000
-    # min(30//10, 5) = 3, 3 * 1000 * 20 = 60000
-    assert result["interest_pts"] == 60_000
-    # 6 * 250 * 20 = 30000
-    assert result["surviving_pts"] == 30_000
-    # 2750 * 20 = 55000
-    assert result["time_pts"] == 55_000
-    assert result["total"] == 395_000
+    # Projects for all 30 rounds regardless of current_round
+    # 5 * 2500 * 30 = 375000
+    assert result["component_pts"] == 375_000
+    # min(30//10, 5) = 3, 3 * 1000 * 30 = 90000
+    assert result["interest_pts"] == 90_000
+    # 6 * 250 * 30 = 45000
+    assert result["surviving_pts"] == 45_000
+    # 2750 * 30 = 82500
+    assert result["time_pts"] == 82_500
+    assert result["total"] == 592_500

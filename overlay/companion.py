@@ -622,7 +622,7 @@ class CompanionWindow(QWidget):
             shop_parts.append(f"{i+1}:{name}" if name else f"{i+1}:\u2014")
         shop_str = "  ".join(shop_parts) or "\u2014"
         items_count = len(state.items_on_bench)
-        items_value = items_count * 2500 * max(0, 30 - self._round_to_int(state.round_number))
+        items_value = items_count * 2500 * 30
         board_str = self._format_champions(state.my_board)
         bench_str = self._format_champions(state.my_bench)
         hearts = "\u2665" * (state.lives or 0)
