@@ -34,6 +34,9 @@ class TFTLayout:
     score_display: ScreenRegion = field(default_factory=lambda: ScreenRegion(2276, 378, 214, 91))
     augment_select: ScreenRegion = field(default_factory=lambda: ScreenRegion(600, 400, 1360, 600))
     augment_icons: ScreenRegion = field(default_factory=lambda: ScreenRegion(305, 540, 50, 160))
+    augment_name_0: ScreenRegion = field(default_factory=lambda: ScreenRegion(740, 480, 250, 30))
+    augment_name_1: ScreenRegion = field(default_factory=lambda: ScreenRegion(1155, 480, 250, 30))
+    augment_name_2: ScreenRegion = field(default_factory=lambda: ScreenRegion(1570, 480, 250, 30))
 
     # Text regions for OCR
     round_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(960, 15, 110, 35))

@@ -141,6 +141,7 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
                     )
 
             companion.update_game_state(state, projected_score=projection_now["total"])
+            reader.ionia_locked = companion._ionia_locked
 
             overlay.update_signal.emit({
                 "score": projection_now["total"],

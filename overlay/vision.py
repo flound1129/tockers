@@ -145,8 +145,7 @@ class GameState:
     gold: int | None = None
     level: int | None = None
     lives: int | None = None
-    augment_choices: list[Match] = field(default_factory=list)
-    selected_augments: list[Match] = field(default_factory=list)
+    augment_choices: list[str] = field(default_factory=list)
     round_number: str | None = None
     rerolls: int | None = None
     ionia_path: str | None = None
@@ -162,6 +161,7 @@ class GameStateReader:
         self.champion_matcher = champion_matcher
         self.item_matcher = item_matcher
         self.augment_matcher = augment_matcher
+        self.ionia_locked = False
 
     def read(self, frame: np.ndarray) -> GameState:
         state = GameState(
@@ -171,7 +171,7 @@ class GameStateReader:
             lives=self._read_lives(frame),
             level=self._read_level(frame),
             rerolls=self._read_rerolls(frame),
-            ionia_path=self._read_ionia_path(frame),
+            ionia_path=None if self.ionia_locked else self._read_ionia_path(frame),
             shop=self._read_shop_names(frame),
         )
 
@@ -183,13 +183,8 @@ class GameStateReader:
             state.my_bench = self._detect_bench_champions(frame)
             state.my_board = self._detect_board_champions(frame)
 
-        if state.round_number in ("1-5", "2-5", "3-5") and self.augment_matcher:
-            aug_crop = _crop(frame, self.layout.augment_select)
-            state.augment_choices = self.augment_matcher.find_matches(aug_crop)
-
-        if self.augment_matcher:
-            icons_crop = _crop(frame, self.layout.augment_icons)
-            state.selected_augments = self.augment_matcher.find_matches(icons_crop)
+        if state.round_number in ("1-5", "2-5", "3-5"):
+            state.augment_choices = self._read_augment_names(frame)
 
         state.top_damage = self._read_top_damage(frame)
 
@@ -276,6 +271,24 @@ class GameStateReader:
             if matches:
                 return self.IONIA_PATH_MAP[matches[0]]
         return None
+
+    def _read_augment_names(self, frame: np.ndarray) -> list[str]:
+        """OCR the 3 augment card names from the selection screen."""
+        regions = [
+            self.layout.augment_name_0,
+            self.layout.augment_name_1,
+            self.layout.augment_name_2,
+        ]
+        names = []
+        for region in regions:
+            crop = _crop(frame, region)
+            if np.mean(crop) < 15:
+                continue
+            text = _ocr_text(crop, scale=3, method="adaptive", psm=7)
+            clean = text.strip()
+            if clean:
+                names.append(clean)
+        return names
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
         """Read champion names from 5 shop card slots using multi-pass OCR."""
