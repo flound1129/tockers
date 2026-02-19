@@ -161,10 +161,7 @@ class GameStateReader:
 
         if self.item_matcher:
             bench_crop = _crop(frame, self.layout.item_bench)
-            bench_items = self.item_matcher.find_matches(bench_crop)
-            panel_crop = _crop(frame, self.layout.item_panel)
-            panel_items = self.item_matcher.find_matches(panel_crop)
-            state.items_on_bench = bench_items + panel_items
+            state.items_on_bench = self.item_matcher.find_matches(bench_crop)
 
         if self.champion_matcher and self.champion_matcher.templates:
             state.my_bench = self._detect_bench_champions(frame)
