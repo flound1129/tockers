@@ -203,13 +203,9 @@ class CompanionWindow(QWidget):
         header.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
         v.addWidget(header)
 
-        # Region selector (built-in + any extra from calibration.json, all sorted)
+        # Region selector
         self._region_combo = QComboBox()
-        all_names = list(BUILTIN_REGION_NAMES)
-        if self._layout and self._layout.extra_regions:
-            all_names.extend(self._layout.extra_regions.keys())
-            all_names.sort()
-        self._region_combo.addItems(all_names)
+        self._region_combo.addItems(BUILTIN_REGION_NAMES)
         self._region_combo.currentTextChanged.connect(self._on_region_changed)
         v.addWidget(self._region_combo)
 
@@ -306,9 +302,7 @@ class CompanionWindow(QWidget):
         if name.startswith("shop_card_"):
             idx = int(name.split("_")[-1])
             return self._layout.shop_card_names[idx]
-        if hasattr(self._layout, name) and name != "extra_regions":
-            return getattr(self._layout, name)
-        return self._layout.extra_regions.get(name)
+        return getattr(self._layout, name, None)
 
     def _set_region(self, name: str, region: ScreenRegion):
         if self._layout is None:
@@ -316,10 +310,8 @@ class CompanionWindow(QWidget):
         if name.startswith("shop_card_"):
             idx = int(name.split("_")[-1])
             self._layout.shop_card_names[idx] = region
-        elif hasattr(self._layout, name) and name != "extra_regions":
-            setattr(self._layout, name, region)
         else:
-            self._layout.extra_regions[name] = region
+            setattr(self._layout, name, region)
 
     def _on_region_changed(self, name: str):
         region = self._get_region(name)
@@ -465,7 +457,6 @@ class CompanionWindow(QWidget):
         gy = max(0, (screen_h - game_h) // 2)
 
         qt_regions = []
-        # All built-in regions
         for name in BUILTIN_REGION_NAMES:
             region = self._get_region(name)
             if region:
@@ -473,13 +464,6 @@ class CompanionWindow(QWidget):
                     QRect(gx + region.x, gy + region.y, region.w, region.h),
                     name,
                 ))
-        # All extra regions from calibration.json
-        for name in sorted(self._layout.extra_regions.keys()):
-            region = self._layout.extra_regions[name]
-            qt_regions.append((
-                QRect(gx + region.x, gy + region.y, region.w, region.h),
-                name,
-            ))
 
         self._region_overlay.set_regions(qt_regions)
         self._region_overlay.setGeometry(0, 0, screen_w, screen_h)

@@ -33,7 +33,6 @@ def save_calibration(path: Path, layout: TFTLayout) -> None:
             "score_display": _region_to_dict(layout.score_display),
             "augment_select": _region_to_dict(layout.augment_select),
             "champion_bench": _region_to_dict(layout.champion_bench),
-            **{name: _region_to_dict(r) for name, r in layout.extra_regions.items()},
         },
         "shop_card_names": [_region_to_dict(r) for r in layout.shop_card_names],
         "hex_grid": {

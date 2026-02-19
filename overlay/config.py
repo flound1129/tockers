@@ -55,9 +55,6 @@ class TFTLayout:
         default_factory=lambda: ScreenRegion(345, 1000, 1635, 120)
     )
 
-    # Extra regions loaded from calibration.json (not hardcoded in code)
-    extra_regions: dict[str, ScreenRegion] = field(default_factory=dict)
-
     # Board hex grid parameters (player side only — enemy data is in DB)
     # Calibrated from health bar positions: y=652, 779, 927, 971
     # Perspective compresses back rows, so row_height=130 is a compromise
@@ -107,11 +104,8 @@ class TFTLayout:
 
         regions = data.get("regions", {})
         for name, d in regions.items():
-            r = _dict_to_region(d)
-            if hasattr(layout, name) and name != "extra_regions":
-                setattr(layout, name, r)
-            else:
-                layout.extra_regions[name] = r
+            if hasattr(layout, name):
+                setattr(layout, name, _dict_to_region(d))
 
         if "shop_card_names" in data:
             layout.shop_card_names = [_dict_to_region(d) for d in data["shop_card_names"]]
