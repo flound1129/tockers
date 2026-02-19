@@ -137,6 +137,8 @@ class CompanionWindow(QWidget):
         self._worker: _AiWorker | None = None
         self._ocr_worker: _OcrWorker | None = None
         self._last_frame: np.ndarray | None = None
+        self._ionia_path: str | None = None
+        self._ionia_locked: bool = False
         self._champ_names: list[str] = _load_champion_names()
         self._region_overlay = RegionOverlay()
         self._ocr_debounce = QTimer()
@@ -190,6 +192,17 @@ class CompanionWindow(QWidget):
         self._info_label.setWordWrap(True)
         self._info_label.setFont(QFont("Consolas", 13))
         layout.addWidget(self._info_label)
+        # Ionia path row
+        ionia_row = QHBoxLayout()
+        self._ionia_label = QLabel("Ionia: --")
+        self._ionia_label.setFont(QFont("Consolas", 13))
+        self._ionia_unlock_btn = QPushButton("Unlock")
+        self._ionia_unlock_btn.setFixedWidth(70)
+        self._ionia_unlock_btn.clicked.connect(self._on_ionia_unlock)
+        self._ionia_unlock_btn.setEnabled(False)
+        ionia_row.addWidget(self._ionia_label, stretch=1)
+        ionia_row.addWidget(self._ionia_unlock_btn, stretch=0)
+        layout.addLayout(ionia_row)
         return frame
 
     def _build_calibration(self) -> QFrame:
@@ -438,6 +451,12 @@ class CompanionWindow(QWidget):
         self._region_overlay.setGeometry(0, 0, screen_w, screen_h)
         self._region_overlay.show()
 
+    def _on_ionia_unlock(self):
+        self._ionia_path = None
+        self._ionia_locked = False
+        self._ionia_label.setText("Ionia: --")
+        self._ionia_unlock_btn.setEnabled(False)
+
     def _on_save_calibration(self):
         if self._layout is None:
             return
@@ -550,6 +569,22 @@ class CompanionWindow(QWidget):
         return ", ".join(parts)
 
     def update_game_state(self, state, projected_score: int = 0):
+        # Reset Ionia lock on new game
+        if state.round_number == "1-1":
+            self._ionia_path = None
+            self._ionia_locked = False
+            self._ionia_unlock_btn.setEnabled(False)
+
+        # Lock Ionia path once read
+        if not self._ionia_locked and state.ionia_path:
+            self._ionia_path = state.ionia_path
+            self._ionia_locked = True
+            self._ionia_unlock_btn.setEnabled(True)
+
+        ionia_display = self._ionia_path or "--"
+        locked_indicator = " [locked]" if self._ionia_locked else ""
+        self._ionia_label.setText(f"Ionia: {ionia_display}{locked_indicator}")
+
         slots = state.shop or []
         shop_parts = []
         for i, name in enumerate(slots):

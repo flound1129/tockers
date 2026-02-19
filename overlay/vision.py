@@ -148,6 +148,7 @@ class GameState:
     augment_choices: list[Match] = field(default_factory=list)
     round_number: str | None = None
     rerolls: int | None = None
+    ionia_path: str | None = None
     top_damage: DamageBreakdown | None = None
 
 
@@ -169,6 +170,7 @@ class GameStateReader:
             lives=self._read_lives(frame),
             level=self._read_level(frame),
             rerolls=self._read_rerolls(frame),
+            ionia_path=self._read_ionia_path(frame),
             shop=self._read_shop_names(frame),
         )
 
@@ -241,6 +243,21 @@ class GameStateReader:
             if 0 <= val <= 99:
                 return val
         return None
+
+    IONIA_PATHS = ["Blades", "Determination", "Enlightenment", "Generosity", "Spirit", "Transcendence"]
+
+    def _read_ionia_path(self, frame: np.ndarray) -> str | None:
+        crop = _crop(frame, self.layout.ionia_trait_text)
+        if np.mean(crop) < 10:
+            return None
+        text = _ocr_text(crop, scale=4, method="adaptive", psm=7)
+        clean = re.sub(r"[^a-zA-Z]", "", text).strip()
+        if not clean:
+            return None
+        # Fuzzy match against known paths
+        from difflib import get_close_matches
+        matches = get_close_matches(clean, self.IONIA_PATHS, n=1, cutoff=0.5)
+        return matches[0] if matches else None
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
         """Read champion names from 5 shop card slots using multi-pass OCR."""
