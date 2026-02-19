@@ -146,6 +146,7 @@ class GameState:
     level: int | None = None
     lives: int | None = None
     augment_choices: list[Match] = field(default_factory=list)
+    selected_augments: list[Match] = field(default_factory=list)
     round_number: str | None = None
     rerolls: int | None = None
     ionia_path: str | None = None
@@ -185,6 +186,10 @@ class GameStateReader:
         if state.round_number in ("1-5", "2-5", "3-5") and self.augment_matcher:
             aug_crop = _crop(frame, self.layout.augment_select)
             state.augment_choices = self.augment_matcher.find_matches(aug_crop)
+
+        if self.augment_matcher:
+            icons_crop = _crop(frame, self.layout.augment_icons)
+            state.selected_augments = self.augment_matcher.find_matches(icons_crop)
 
         state.top_damage = self._read_top_damage(frame)
 

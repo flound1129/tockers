@@ -37,7 +37,7 @@ OCR_CONFIGS = {
 
 # Built-in region names (always present), alphabetized
 BUILTIN_REGION_NAMES = sorted([
-    "augment_select", "board", "champion_bench",
+    "augment_icons", "augment_select", "board", "champion_bench",
     "dmg_amount", "dmg_bar", "dmg_champ", "dmg_stars",
     "gold_text", "ionia_trait_text", "item_bench", "level_text", "lives_text",
     "rerolls_text", "round_text", "score_display",
@@ -140,6 +140,8 @@ class CompanionWindow(QWidget):
         self._last_frame: np.ndarray | None = None
         self._ionia_path: str | None = None
         self._ionia_locked: bool = False
+        self._augments: list[str] = []  # locked augment names
+        self._augments_locked: bool = False
         self._champ_names: list[str] = _load_champion_names()
         self._region_overlay = RegionOverlay()
         self._bridge_server = start_bridge()
@@ -207,6 +209,18 @@ class CompanionWindow(QWidget):
         ionia_row.addWidget(self._ionia_label, stretch=1)
         ionia_row.addWidget(self._ionia_unlock_btn, stretch=0)
         layout.addLayout(ionia_row)
+        # Augments row
+        aug_row = QHBoxLayout()
+        self._augment_label = QLabel("Augments: --")
+        self._augment_label.setFont(QFont("Consolas", 13))
+        self._augment_label.setWordWrap(True)
+        self._augment_rescan_btn = QPushButton("Rescan")
+        self._augment_rescan_btn.setFixedWidth(70)
+        self._augment_rescan_btn.clicked.connect(self._on_augment_rescan)
+        self._augment_rescan_btn.setEnabled(False)
+        aug_row.addWidget(self._augment_label, stretch=1)
+        aug_row.addWidget(self._augment_rescan_btn, stretch=0)
+        layout.addLayout(aug_row)
         return frame
 
     def _build_calibration(self) -> QFrame:
@@ -464,6 +478,12 @@ class CompanionWindow(QWidget):
         self._ionia_label.setText("Ionia: --")
         self._ionia_unlock_btn.setEnabled(False)
 
+    def _on_augment_rescan(self):
+        self._augments = []
+        self._augments_locked = False
+        self._augment_label.setText("Augments: --")
+        self._augment_rescan_btn.setEnabled(False)
+
     def _on_save_calibration(self):
         if self._layout is None:
             return
@@ -600,11 +620,14 @@ class CompanionWindow(QWidget):
         return ", ".join(parts)
 
     def update_game_state(self, state, projected_score: int = 0):
-        # Reset Ionia lock on new game
+        # Reset locks on new game
         if state.round_number == "1-1":
             self._ionia_path = None
             self._ionia_locked = False
             self._ionia_unlock_btn.setEnabled(False)
+            self._augments = []
+            self._augments_locked = False
+            self._augment_rescan_btn.setEnabled(False)
 
         # Lock Ionia path once read
         if not self._ionia_locked and state.ionia_path:
@@ -615,6 +638,19 @@ class CompanionWindow(QWidget):
         ionia_display = self._ionia_path or "--"
         locked_indicator = " [locked]" if self._ionia_locked else ""
         self._ionia_label.setText(f"Ionia: {ionia_display}{locked_indicator}")
+
+        # Lock augments as they're picked — new detections replace old
+        if not self._augments_locked and state.selected_augments:
+            detected = [m.name for m in state.selected_augments]
+            if len(detected) > len(self._augments):
+                self._augments = detected
+                self._augment_rescan_btn.setEnabled(True)
+                if len(self._augments) >= 3:
+                    self._augments_locked = True
+
+        aug_display = ", ".join(self._augments) if self._augments else "--"
+        aug_lock_str = " [locked]" if self._augments_locked else ""
+        self._augment_label.setText(f"Augments: {aug_display}{aug_lock_str}")
 
         slots = state.shop or []
         shop_parts = []
