@@ -1,6 +1,8 @@
 import logging
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -10,13 +12,13 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pytesseract
 
-# On Windows, Tesseract is not on PATH by default
+# Resolve tesseract binary once at import
 if sys.platform == "win32":
     _win_tesseract = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-    if _win_tesseract.exists():
-        pytesseract.pytesseract.tesseract_cmd = str(_win_tesseract)
+    _tesseract_cmd = str(_win_tesseract) if _win_tesseract.exists() else "tesseract"
+else:
+    _tesseract_cmd = shutil.which("tesseract") or "tesseract"
 
 log = logging.getLogger(__name__)
 
@@ -119,12 +121,7 @@ AUGMENT_NAMES = _load_augment_names()
 
 def _ocr_text(image: np.ndarray, scale: int = 4, method: str = "threshold",
               threshold_val: int = 140, psm: int = 7, whitelist: str = "") -> str:
-    """Run Tesseract OCR on a BGR image with preprocessing."""
-    try:
-        import pytesseract
-    except ImportError:
-        return ""
-
+    """Run Tesseract OCR on a BGR image via stdin/stdout (no temp files)."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     scaled = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
@@ -136,10 +133,16 @@ def _ocr_text(image: np.ndarray, scale: int = 4, method: str = "threshold",
     else:
         _, proc = cv2.threshold(scaled, threshold_val, 255, cv2.THRESH_BINARY)
 
-    config = f"--psm {psm}"
+    _, png = cv2.imencode(".png", proc)
+    cmd = [_tesseract_cmd, "stdin", "stdout", "--psm", str(psm)]
     if whitelist:
-        config += f" -c tessedit_char_whitelist={whitelist}"
-    return pytesseract.image_to_string(proc, config=config).strip()
+        cmd += ["-c", f"tessedit_char_whitelist={whitelist}"]
+    try:
+        result = subprocess.run(cmd, input=png.tobytes(),
+                                capture_output=True, timeout=10)
+        return result.stdout.decode().strip()
+    except Exception:
+        return ""
 
 
 def _crop(frame: np.ndarray, region: ScreenRegion) -> np.ndarray:

@@ -1,4 +1,11 @@
+import logging
+import time
+
 import numpy as np
+
+log = logging.getLogger(__name__)
+
+_GAME_CHECK_INTERVAL = 3.0  # seconds between window checks
 
 
 class ScreenCapture:
@@ -9,6 +16,8 @@ class ScreenCapture:
         self.target_fps = target_fps
         self.game_w, self.game_h = game_resolution
         self._camera = None
+        self._game_running = False
+        self._game_check_time = 0.0
 
     def start(self):
         try:
@@ -18,6 +27,27 @@ class ScreenCapture:
                 "dxcam not available. Install on Windows: pip install dxcam"
             )
         self._camera = dxcam.create(output_color="BGR")
+
+    def is_game_running(self) -> bool:
+        now = time.monotonic()
+        if now - self._game_check_time < _GAME_CHECK_INTERVAL:
+            return self._game_running
+        self._game_check_time = now
+        was_running = self._game_running
+        self._game_running = self._find_game_window()
+        if self._game_running != was_running:
+            log.info("game window %s", "found" if self._game_running else "lost")
+        return self._game_running
+
+    @staticmethod
+    def _find_game_window() -> bool:
+        """Check for the League of Legends game window via Win32 API."""
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.FindWindowW("RiotWindowClass", None)
+            return hwnd != 0
+        except Exception:
+            return True  # assume running if we can't check
 
     def grab(self) -> np.ndarray | None:
         if self._camera is None:
@@ -48,6 +78,9 @@ class MockCapture:
 
     def start(self):
         pass
+
+    def is_game_running(self) -> bool:
+        return True
 
     def grab(self) -> np.ndarray | None:
         if self.image_path:

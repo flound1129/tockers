@@ -56,6 +56,10 @@ def vision_loop(capture, reader, engine, overlay, companion, stop_event):
 
     try:
         while not stop_event.is_set():
+            if not capture.is_game_running():
+                time.sleep(1)
+                continue
+
             frame = capture.grab()
             if frame is None:
                 time.sleep(0.5)
