@@ -1,6 +1,7 @@
 import re
 import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher, get_close_matches
 from pathlib import Path
@@ -178,6 +179,7 @@ class GameStateReader:
         self.item_matcher = item_matcher
         self.augment_matcher = augment_matcher
         self.ionia_locked = False
+        self._pool = ThreadPoolExecutor(max_workers=6)
         # Cached OCR results (only re-read on round change)
         self._last_round: str | None = None
         self._cached_gold: int | None = None
@@ -195,15 +197,21 @@ class GameStateReader:
         round_number = self._read_round(frame)
         round_changed = round_number != self._last_round and round_number is not None
 
-        # Full text OCR only on round change
+        # Full text OCR only on round change — run in parallel (tesseract releases GIL)
         if round_changed:
             self._last_round = round_number
-            self._cached_gold = self._read_gold(frame)
-            self._cached_lives = self._read_lives(frame)
-            self._cached_level = self._read_level(frame)
-            self._cached_rerolls = self._read_rerolls(frame)
-            self._cached_shop = self._read_shop_names(frame)
-            self._cached_damage = self._read_top_damage(frame)
+            f_gold = self._pool.submit(self._read_gold, frame)
+            f_lives = self._pool.submit(self._read_lives, frame)
+            f_level = self._pool.submit(self._read_level, frame)
+            f_rerolls = self._pool.submit(self._read_rerolls, frame)
+            f_shop = self._pool.submit(self._read_shop_names, frame)
+            f_damage = self._pool.submit(self._read_top_damage, frame)
+            self._cached_gold = f_gold.result()
+            self._cached_lives = f_lives.result()
+            self._cached_level = f_level.result()
+            self._cached_rerolls = f_rerolls.result()
+            self._cached_shop = f_shop.result()
+            self._cached_damage = f_damage.result()
 
         state = GameState(
             phase=self._detect_phase(frame),
@@ -326,27 +334,27 @@ class GameStateReader:
             self.layout.augment_name_1,
             self.layout.augment_name_2,
         ]
-        names = []
-        for region in regions:
-            crop = _crop(frame, region)
-            if np.mean(crop) < 15:
-                continue
-            text = _ocr_text(crop, scale=3, method="adaptive", psm=7)
-            clean = text.strip()
-            if not clean:
-                continue
-            matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.6)
-            if matches:
-                names.append(matches[0])
-        return names
+        futures = [self._pool.submit(self._read_single_augment, frame, region)
+                   for region in regions]
+        return [name for f in futures if (name := f.result()) is not None]
+
+    def _read_single_augment(self, frame: np.ndarray, region: ScreenRegion) -> str | None:
+        """Read a single augment card name with fuzzy matching."""
+        crop = _crop(frame, region)
+        if np.mean(crop) < 15:
+            return None
+        text = _ocr_text(crop, scale=3, method="adaptive", psm=7)
+        clean = text.strip()
+        if not clean:
+            return None
+        matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.6)
+        return matches[0] if matches else None
 
     def _read_shop_names(self, frame: np.ndarray) -> list[str]:
         """Read champion names from 5 shop card slots using multi-pass OCR."""
-        names = []
-        for card_region in self.layout.shop_card_names:
-            name = self._read_single_card(frame, card_region)
-            names.append(name or "")
-        return names
+        futures = [self._pool.submit(self._read_single_card, frame, r)
+                   for r in self.layout.shop_card_names]
+        return [f.result() or "" for f in futures]
 
     def _read_single_card(self, frame: np.ndarray, region: ScreenRegion) -> str | None:
         """Read a single shop card name with adaptive + OTSU fallback."""
