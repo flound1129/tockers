@@ -186,6 +186,9 @@ class GameStateReader:
         self._cached_rerolls: int | None = None
         self._cached_shop: list[str] = []
         self._cached_damage: DamageBreakdown | None = None
+        self._cached_items: list[Match] = []
+        self._cached_bench: list[Match] = []
+        self._cached_board: list[Match] = []
 
     def read(self, frame: np.ndarray) -> GameState:
         # Round text every frame (fast, drives transitions)
@@ -214,15 +217,19 @@ class GameStateReader:
             top_damage=self._cached_damage,
         )
 
-        # Template matching + augment OCR only on round change
+        # Template matching only on round change, use cached between rounds
         if round_changed:
             if self.item_matcher:
                 bench_crop = _crop(frame, self.layout.item_bench)
-                state.items_on_bench = self.item_matcher.find_matches(bench_crop)
+                self._cached_items = self.item_matcher.find_matches(bench_crop)
 
             if self.champion_matcher and self.champion_matcher.templates:
-                state.my_bench = self._detect_bench_champions(frame)
-                state.my_board = self._detect_board_champions(frame)
+                self._cached_bench = self._detect_bench_champions(frame)
+                self._cached_board = self._detect_board_champions(frame)
+
+        state.items_on_bench = self._cached_items
+        state.my_bench = self._cached_bench
+        state.my_board = self._cached_board
 
         # Augment names every frame on selection rounds (for rerolls)
         if state.round_number in ("1-5", "2-5", "3-5"):
