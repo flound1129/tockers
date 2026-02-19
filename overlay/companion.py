@@ -301,6 +301,23 @@ class CompanionWindow(QWidget):
 
         cv2.imwrite(str(out_dir / "bench_annotated.png"), annotated)
 
+        # Draw bench region on full frame in red
+        frame_annotated = frame.copy()
+        RED = (0, 0, 255)
+        cv2.rectangle(frame_annotated,
+                       (region.x, region.y),
+                       (region.x + region.w, region.y + region.h),
+                       RED, 2)
+        cv2.putText(frame_annotated, "champion_bench",
+                    (region.x + 5, region.y - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, RED, 2)
+        # Also draw slot dividers
+        for i in range(num_slots):
+            sx = region.x + i * slot_w
+            cv2.line(frame_annotated, (sx, region.y), (sx, region.y + region.h),
+                     RED, 1)
+        cv2.imwrite(str(out_dir / "bench_regions.png"), frame_annotated)
+
         report_path = out_dir / "bench_report.txt"
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
         self._append_message("Debug", f"Bench crops saved ({num_slots} slots)")
@@ -353,6 +370,30 @@ class CompanionWindow(QWidget):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0), 1)
 
         cv2.imwrite(str(out_dir / "board_annotated.png"), annotated)
+
+        # Draw hex grid on full frame in red
+        frame_annotated = frame.copy()
+        RED = (0, 0, 255)
+        for idx, region in enumerate(hex_regions):
+            row = idx // cols
+            col = idx % cols
+            cv2.rectangle(frame_annotated,
+                           (region.x, region.y),
+                           (region.x + region.w, region.y + region.h),
+                           RED, 2)
+            cv2.putText(frame_annotated, f"{row},{col}",
+                        (region.x + 3, region.y + 14),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, RED, 1)
+        # Also draw bench region for context
+        bench = self._layout.champion_bench
+        cv2.rectangle(frame_annotated,
+                       (bench.x, bench.y),
+                       (bench.x + bench.w, bench.y + bench.h),
+                       RED, 2)
+        cv2.putText(frame_annotated, "bench",
+                    (bench.x + 5, bench.y - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, RED, 2)
+        cv2.imwrite(str(out_dir / "board_regions.png"), frame_annotated)
 
         report_path = out_dir / "board_report.txt"
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
