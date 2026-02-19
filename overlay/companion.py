@@ -326,6 +326,12 @@ class CompanionWindow(QWidget):
         for i, region in enumerate(self._layout.shop_card_names):
             regions.append((region, f"shop{i}"))
 
+        # Item panel (left side)
+        regions.append((self._layout.item_panel, "item_panel"))
+
+        # Score display
+        regions.append((self._layout.score_display, "score"))
+
         # OCR regions
         regions.append((self._layout.round_text, "round"))
         regions.append((self._layout.gold_text, "gold"))
