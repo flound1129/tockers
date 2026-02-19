@@ -25,6 +25,7 @@ OCR_CONFIGS = {
     "lives_text":  {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 7, "whitelist": "0123456789"},
     "level_text":  {"scale": 4, "method": "adaptive", "psm": 7},
     "rerolls_text": {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 8, "whitelist": "0123456789"},
+    "ionia_trait_text": {"scale": 4, "method": "adaptive", "psm": 7},
     "dmg_amount":   {"scale": 5, "method": "threshold", "threshold_val": 140, "psm": 8, "whitelist": "0123456789"},
     "shop_card_0": {"scale": 4, "method": "adaptive", "psm": 11},
     "shop_card_1": {"scale": 4, "method": "adaptive", "psm": 11},
@@ -37,7 +38,7 @@ OCR_CONFIGS = {
 BUILTIN_REGION_NAMES = sorted([
     "augment_select", "board", "champion_bench",
     "dmg_amount", "dmg_bar", "dmg_champ", "dmg_stars",
-    "gold_text", "item_bench", "level_text", "lives_text",
+    "gold_text", "ionia_trait_text", "item_bench", "level_text", "lives_text",
     "rerolls_text", "round_text", "score_display",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
     "trait_panel",
