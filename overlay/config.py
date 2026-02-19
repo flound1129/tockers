@@ -37,11 +37,11 @@ class TFTLayout:
 
     # Individual shop card name bars (5 slots, 180px to exclude cost icon)
     shop_card_names: list[ScreenRegion] = field(default_factory=lambda: [
-        ScreenRegion(590, 1400, 180, 30),
-        ScreenRegion(870, 1400, 180, 30),
-        ScreenRegion(1150, 1400, 180, 30),
-        ScreenRegion(1430, 1400, 180, 30),
-        ScreenRegion(1710, 1400, 180, 30),
+        ScreenRegion(600, 1390, 180, 30),
+        ScreenRegion(880, 1390, 180, 30),
+        ScreenRegion(1160, 1390, 180, 30),
+        ScreenRegion(1440, 1390, 180, 30),
+        ScreenRegion(1720, 1390, 180, 30),
     ])
 
     # Champion bench (taller than item bench to capture full portraits)
