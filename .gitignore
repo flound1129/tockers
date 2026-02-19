@@ -5,3 +5,4 @@ __pycache__/
 references/**/*.png
 .env
 debug_crops/
+tft.db

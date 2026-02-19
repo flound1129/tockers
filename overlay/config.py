@@ -44,7 +44,42 @@ class TFTLayout:
         ScreenRegion(1710, 1400, 180, 30),
     ])
 
+    # Champion bench (taller than item bench to capture full portraits)
+    champion_bench: ScreenRegion = field(
+        default_factory=lambda: ScreenRegion(345, 1080, 1635, 165)
+    )
+
+    # Board hex grid parameters
+    board_hex_origin: tuple[int, int] = (600, 400)
+    board_hex_cols: int = 7
+    board_hex_rows: int = 4
+    board_hex_col_width: int = 194
+    board_hex_row_height: int = 150
+    board_hex_row_offset: int = 97  # odd-row horizontal offset
+    board_hex_portrait_h: int = 80
+
+    @property
+    def board_hex_regions(self) -> list[ScreenRegion]:
+        """Compute per-cell ScreenRegion list for the board hex grid."""
+        regions = []
+        ox, oy = self.board_hex_origin
+        for row in range(self.board_hex_rows):
+            for col in range(self.board_hex_cols):
+                x = ox + col * self.board_hex_col_width
+                if row % 2 == 1:
+                    x += self.board_hex_row_offset
+                y = oy + row * self.board_hex_row_height
+                regions.append(ScreenRegion(
+                    x, y,
+                    self.board_hex_col_width,
+                    self.board_hex_portrait_h,
+                ))
+        return regions
+
 
 CAPTURE_FPS = 1  # Frames per second during planning phase
 MATCH_THRESHOLD = 0.8  # OpenCV template match confidence threshold
+BENCH_MATCH_THRESHOLD = 0.75
+BOARD_MATCH_THRESHOLD = 0.70
+BENCH_ICON_SIZE = 60  # estimated champion icon size on bench
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"

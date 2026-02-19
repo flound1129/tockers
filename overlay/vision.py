@@ -15,7 +15,10 @@ if sys.platform == "win32":
     if _win_tesseract.exists():
         pytesseract.pytesseract.tesseract_cmd = str(_win_tesseract)
 
-from .config import DB_PATH, ScreenRegion, TFTLayout
+from .config import (
+    DB_PATH, ScreenRegion, TFTLayout,
+    BENCH_MATCH_THRESHOLD, BOARD_MATCH_THRESHOLD,
+)
 
 
 @dataclass
@@ -24,6 +27,7 @@ class Match:
     x: int
     y: int
     confidence: float
+    stars: int = 0  # 0=unknown, 1/2/3=detected star level
 
 
 class TemplateMatcher:
@@ -156,8 +160,12 @@ class GameStateReader:
         )
 
         if self.item_matcher:
-            bench_crop = _crop(frame, self.layout.bench)
+            bench_crop = _crop(frame, self.layout.item_bench)
             state.items_on_bench = self.item_matcher.find_matches(bench_crop)
+
+        if self.champion_matcher and self.champion_matcher.templates:
+            state.my_bench = self._detect_bench_champions(frame)
+            state.my_board = self._detect_board_champions(frame)
 
         if state.phase == "augment" and self.augment_matcher:
             aug_crop = _crop(frame, self.layout.augment_select)
@@ -249,3 +257,81 @@ class GameStateReader:
                     best_match = matches[0]
 
         return best_match
+
+    def _detect_bench_champions(self, frame: np.ndarray) -> list[Match]:
+        """Detect champions on the bench using template matching."""
+        bench_crop = _crop(frame, self.layout.champion_bench)
+        matches = self.champion_matcher.find_matches(
+            bench_crop, threshold=BENCH_MATCH_THRESHOLD,
+        )
+        # Translate coordinates to full-frame and detect stars
+        region = self.layout.champion_bench
+        result = []
+        for m in matches:
+            m.x += region.x
+            m.y += region.y
+            m.stars = self._detect_stars(frame, m)
+            result.append(m)
+        return result
+
+    def _detect_board_champions(self, frame: np.ndarray) -> list[Match]:
+        """Detect champions on the board by scanning each hex cell."""
+        results = []
+        for region in self.layout.board_hex_regions:
+            cell_crop = _crop(frame, region)
+            # Skip empty cells
+            gray = cv2.cvtColor(cell_crop, cv2.COLOR_BGR2GRAY)
+            if np.mean(gray) < 15:
+                continue
+            matches = self.champion_matcher.find_matches(
+                cell_crop, threshold=BOARD_MATCH_THRESHOLD,
+            )
+            if matches:
+                best = max(matches, key=lambda m: m.confidence)
+                best.x += region.x
+                best.y += region.y
+                best.stars = self._detect_stars(frame, best)
+                results.append(best)
+        return results
+
+    def _detect_stars(self, frame: np.ndarray, match: Match) -> int:
+        """Detect star level (1/2/3) from gold/silver pips below a champion.
+
+        Looks at a horizontal strip below the detected champion position and
+        counts gold-colored pixels (HSV thresholding) to classify star level.
+        """
+        # Crop a strip below the champion icon
+        pip_y = match.y + 60  # below the icon
+        pip_h = 20
+        pip_x = match.x - 10
+        pip_w = 80
+        # Clamp to frame bounds
+        h, w = frame.shape[:2]
+        pip_x = max(0, pip_x)
+        pip_y = max(0, pip_y)
+        if pip_x + pip_w > w:
+            pip_w = w - pip_x
+        if pip_y + pip_h > h:
+            pip_h = h - pip_y
+        if pip_w <= 0 or pip_h <= 0:
+            return 0
+
+        pip_crop = frame[pip_y:pip_y + pip_h, pip_x:pip_x + pip_w]
+        hsv = cv2.cvtColor(pip_crop, cv2.COLOR_BGR2HSV)
+
+        # Gold pips: H 20-40, S > 100, V > 150
+        gold_mask = cv2.inRange(hsv, (20, 100, 150), (40, 255, 255))
+        gold_pixels = cv2.countNonZero(gold_mask)
+
+        # Silver pips: S < 60, V > 180 (grayish-white)
+        silver_mask = cv2.inRange(hsv, (0, 0, 180), (180, 60, 255))
+        silver_pixels = cv2.countNonZero(silver_mask)
+
+        total_pip_pixels = gold_pixels + silver_pixels
+        if gold_pixels > 50:
+            return 3  # 3-star has prominent gold pips
+        elif total_pip_pixels > 30:
+            return 2  # 2-star has silver/gold pips
+        elif total_pip_pixels > 5:
+            return 1
+        return 1  # Default to 1-star if champion is detected

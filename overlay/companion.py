@@ -115,9 +115,15 @@ class CompanionWindow(QWidget):
         self._input_field.returnPressed.connect(self._on_send)
         self._debug_button = QPushButton("Debug Shop")
         self._debug_button.clicked.connect(self._on_debug_shop)
+        self._debug_bench_button = QPushButton("Debug Bench")
+        self._debug_bench_button.clicked.connect(self._on_debug_bench)
+        self._debug_board_button = QPushButton("Debug Board")
+        self._debug_board_button.clicked.connect(self._on_debug_board)
         layout.addWidget(self._input_field, stretch=4)
         layout.addWidget(self._send_button, stretch=1)
         layout.addWidget(self._debug_button, stretch=1)
+        layout.addWidget(self._debug_bench_button, stretch=1)
+        layout.addWidget(self._debug_board_button, stretch=1)
         return frame
 
     def _on_send(self):
@@ -254,16 +260,134 @@ class CompanionWindow(QWidget):
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
         self._append_message("Debug", f"Crops + report saved to {out_dir}")
 
+    def _on_debug_bench(self):
+        if self._last_frame is None or self._layout is None:
+            self._append_message("Debug", "No frame captured yet.")
+            return
+
+        frame = self._last_frame
+        out_dir = Path(__file__).parent.parent / "debug_crops"
+        out_dir.mkdir(exist_ok=True)
+
+        region = self._layout.champion_bench
+        bench_crop = frame[region.y:region.y + region.h,
+                           region.x:region.x + region.w]
+        cv2.imwrite(str(out_dir / "bench_full.png"), bench_crop)
+
+        report_lines = [
+            f"Frame: {frame.shape[1]}x{frame.shape[0]}",
+            f"Bench region: x={region.x} y={region.y} w={region.w} h={region.h}",
+        ]
+
+        # Divide bench into slots (9 bench slots, evenly spaced)
+        num_slots = 9
+        slot_w = region.w // num_slots
+        annotated = bench_crop.copy()
+
+        for i in range(num_slots):
+            sx = i * slot_w
+            slot_crop = bench_crop[:, sx:sx + slot_w]
+            cv2.imwrite(str(out_dir / f"bench_slot_{i}.png"), slot_crop)
+
+            brightness = np.mean(cv2.cvtColor(slot_crop, cv2.COLOR_BGR2GRAY))
+            line = f"Slot {i}: x={region.x + sx} brightness={brightness:.0f}"
+            report_lines.append(line)
+
+            # Draw grid lines on annotated image
+            cv2.rectangle(annotated, (sx, 0), (sx + slot_w, region.h),
+                          (0, 255, 0), 1)
+            cv2.putText(annotated, f"{i}", (sx + 5, 15),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+        cv2.imwrite(str(out_dir / "bench_annotated.png"), annotated)
+
+        report_path = out_dir / "bench_report.txt"
+        report_path.write_text("\n".join(report_lines), encoding="utf-8")
+        self._append_message("Debug", f"Bench crops saved ({num_slots} slots)")
+
+    def _on_debug_board(self):
+        if self._last_frame is None or self._layout is None:
+            self._append_message("Debug", "No frame captured yet.")
+            return
+
+        frame = self._last_frame
+        out_dir = Path(__file__).parent.parent / "debug_crops"
+        out_dir.mkdir(exist_ok=True)
+
+        hex_regions = self._layout.board_hex_regions
+        ox, oy = self._layout.board_hex_origin
+        # Compute bounding box for full board crop
+        max_x = max(r.x + r.w for r in hex_regions)
+        max_y = max(r.y + r.h for r in hex_regions)
+        board_crop = frame[oy:max_y, ox:max_x]
+        cv2.imwrite(str(out_dir / "board_full.png"), board_crop)
+
+        report_lines = [
+            f"Frame: {frame.shape[1]}x{frame.shape[0]}",
+            f"Board origin: ({ox}, {oy})",
+            f"Hex cells: {len(hex_regions)} "
+            f"({self._layout.board_hex_rows}x{self._layout.board_hex_cols})",
+        ]
+
+        annotated = board_crop.copy()
+        cols = self._layout.board_hex_cols
+
+        for idx, region in enumerate(hex_regions):
+            row = idx // cols
+            col = idx % cols
+            cell_crop = frame[region.y:region.y + region.h,
+                              region.x:region.x + region.w]
+            cv2.imwrite(str(out_dir / f"board_r{row}_c{col}.png"), cell_crop)
+
+            brightness = np.mean(cv2.cvtColor(cell_crop, cv2.COLOR_BGR2GRAY))
+            line = (f"Cell r{row}c{col}: x={region.x} y={region.y} "
+                    f"brightness={brightness:.0f}")
+            report_lines.append(line)
+
+            # Draw rectangle on annotated image (offset from board origin)
+            rx = region.x - ox
+            ry = region.y - oy
+            cv2.rectangle(annotated, (rx, ry), (rx + region.w, ry + region.h),
+                          (0, 255, 0), 1)
+            cv2.putText(annotated, f"{row},{col}", (rx + 3, ry + 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0), 1)
+
+        cv2.imwrite(str(out_dir / "board_annotated.png"), annotated)
+
+        report_path = out_dir / "board_report.txt"
+        report_path.write_text("\n".join(report_lines), encoding="utf-8")
+        self._append_message(
+            "Debug",
+            f"Board crops saved ({len(hex_regions)} cells, "
+            f"{self._layout.board_hex_rows}x{self._layout.board_hex_cols})"
+        )
+
+    @staticmethod
+    def _format_champions(champions: list) -> str:
+        """Format champion list with star indicators: 'Viego★★, Jhin★'."""
+        if not champions:
+            return "—"
+        star_char = "★"
+        parts = []
+        for m in champions:
+            stars = star_char * m.stars if m.stars > 0 else ""
+            parts.append(f"{m.name}{stars}")
+        return ", ".join(parts)
+
     def update_game_state(self, state, projected_score: int = 0):
         """Refresh the game info panel. Safe to call from any thread via signal."""
         shop_names = [s for s in (state.shop or []) if s]
         items_count = len(state.items_on_bench)
         items_value = items_count * 2500 * max(0, 30 - self._round_to_int(state.round_number))
+        board_str = self._format_champions(state.my_board)
+        bench_str = self._format_champions(state.my_bench)
         lines = [
             f"Round: {state.round_number or '--'}  "
             f"Gold: {state.gold or '--'}  "
             f"Level: {state.level or '--'}  "
             f"Lives: {'♥' * (state.lives or 0)}",
+            f"Board ({len(state.my_board)}): {board_str}",
+            f"Bench ({len(state.my_bench)}): {bench_str}",
             f"Shop: {', '.join(shop_names) or '—'}",
             f"Items on bench: {items_count}  (+{items_value:,} pts)",
             f"Projected score: {projected_score:,}",

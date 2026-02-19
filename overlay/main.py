@@ -6,7 +6,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from overlay.config import TFTLayout, CAPTURE_FPS, REFERENCES_DIR, DB_PATH
+from overlay.config import (
+    TFTLayout, CAPTURE_FPS, REFERENCES_DIR, DB_PATH, BENCH_ICON_SIZE,
+)
 from overlay.capture import ScreenCapture, MockCapture
 from overlay.vision import TemplateMatcher, GameStateReader
 from overlay.strategy import StrategyEngine
@@ -18,6 +20,7 @@ ITEM_ICON_SIZE = 40  # approximate item icon size at 2560x1440
 def create_matchers():
     item_dir = REFERENCES_DIR / "items"
     augment_dir = REFERENCES_DIR / "augments"
+    champion_dir = REFERENCES_DIR / "champions"
 
     def load_or_empty(d, icon_size=None):
         if d.exists() and any(d.glob("*.png")):
@@ -26,7 +29,11 @@ def create_matchers():
         m.templates = {}
         return m
 
-    return load_or_empty(item_dir, ITEM_ICON_SIZE), load_or_empty(augment_dir)
+    return (
+        load_or_empty(item_dir, ITEM_ICON_SIZE),
+        load_or_empty(augment_dir),
+        load_or_empty(champion_dir, BENCH_ICON_SIZE),
+    )
 
 
 def _round_str_to_int(round_str: str | None) -> int:
@@ -159,8 +166,13 @@ def main():
 
     app = QApplication(sys.argv)
     layout = TFTLayout()
-    item_m, aug_m = create_matchers()
-    reader = GameStateReader(layout, item_matcher=item_m, augment_matcher=aug_m)
+    item_m, aug_m, champ_m = create_matchers()
+    reader = GameStateReader(
+        layout,
+        champion_matcher=champ_m,
+        item_matcher=item_m,
+        augment_matcher=aug_m,
+    )
     engine = StrategyEngine(DB_PATH)
 
     capture = MockCapture(mock_image) if use_mock else ScreenCapture(CAPTURE_FPS)
