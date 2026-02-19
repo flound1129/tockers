@@ -50,13 +50,15 @@ class TFTLayout:
     )
 
     # Board hex grid parameters (player side only — enemy data is in DB)
-    board_hex_origin: tuple[int, int] = (600, 430)
+    # Calibrated from health bar positions: y=652, 779, 927, 971
+    # Perspective compresses back rows, so row_height=130 is a compromise
+    board_hex_origin: tuple[int, int] = (600, 555)
     board_hex_cols: int = 7
     board_hex_rows: int = 4
     board_hex_col_width: int = 194
-    board_hex_row_height: int = 150
+    board_hex_row_height: int = 130
     board_hex_row_offset: int = 97  # odd-row horizontal offset
-    board_hex_portrait_h: int = 100
+    board_hex_portrait_h: int = 115
 
     @property
     def board_hex_regions(self) -> list[ScreenRegion]:
