@@ -10,12 +10,48 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QLabel, QFrame,
 )
-from PyQt6.QtCore import QThread, Qt
+from PyQt6.QtCore import QThread, Qt, QRect
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtCore import pyqtSignal as Signal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPainter, QPen, QColor
 
 from overlay.vision import _load_champion_names
+
+
+class RegionOverlay(QWidget):
+    """Transparent full-screen overlay that draws red rectangles on regions."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Region Debug")
+        self.setWindowFlags(
+            Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._regions: list[tuple[QRect, str]] = []  # (rect, label)
+
+    def set_regions(self, regions: list[tuple[QRect, str]]):
+        self._regions = regions
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._regions:
+            return
+        painter = QPainter(self)
+        pen = QPen(QColor(255, 0, 0), 2)
+        painter.setPen(pen)
+        font = painter.font()
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        for rect, label in self._regions:
+            painter.drawRect(rect)
+            if label:
+                painter.drawText(rect.x() + 4, rect.y() - 4, label)
+        painter.end()
 
 
 class _AiWorker(QThread):
@@ -50,6 +86,7 @@ class CompanionWindow(QWidget):
         self._worker: _AiWorker | None = None
         self._last_frame: np.ndarray | None = None
         self._champ_names: list[str] = _load_champion_names()
+        self._region_overlay = RegionOverlay()
         self.setWindowTitle("Tocker's Companion")
         self.resize(400, 700)
         self.move(50, 50)
@@ -260,6 +297,33 @@ class CompanionWindow(QWidget):
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
         self._append_message("Debug", f"Crops + report saved to {out_dir}")
 
+    def _show_debug_regions(self, regions: list[tuple]):
+        """Show red rectangles on the game overlay.
+
+        regions: list of (ScreenRegion, label) tuples in game coordinates.
+        """
+        from PyQt6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        screen_w = screen.geometry().width()
+        screen_h = screen.geometry().height()
+        game_w, game_h = self._layout.resolution
+        # Game is centered on screen (for ultrawide)
+        gx = (screen_w - game_w) // 2
+        gy = (screen_h - game_h) // 2
+        gy = max(0, gy)
+        gx = max(0, gx)
+
+        qt_regions = []
+        for sr, label in regions:
+            qt_regions.append((
+                QRect(gx + sr.x, gy + sr.y, sr.w, sr.h),
+                label,
+            ))
+
+        self._region_overlay.set_regions(qt_regions)
+        self._region_overlay.setGeometry(0, 0, screen_w, screen_h)
+        self._region_overlay.show()
+
     def _on_debug_bench(self):
         if self._last_frame is None or self._layout is None:
             self._append_message("Debug", "No frame captured yet.")
@@ -320,6 +384,16 @@ class CompanionWindow(QWidget):
 
         report_path = out_dir / "bench_report.txt"
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
+
+        # Show red rectangles on game overlay
+        from overlay.config import ScreenRegion
+        overlay_regions = [(region, "bench")]
+        for i in range(num_slots):
+            sx = region.x + i * slot_w
+            overlay_regions.append((
+                ScreenRegion(sx, region.y, slot_w, region.h), f"{i}"
+            ))
+        self._show_debug_regions(overlay_regions)
         self._append_message("Debug", f"Bench crops saved ({num_slots} slots)")
 
     def _on_debug_board(self):
@@ -397,6 +471,17 @@ class CompanionWindow(QWidget):
 
         report_path = out_dir / "board_report.txt"
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
+
+        # Show red rectangles on game overlay
+        overlay_regions = []
+        for idx, region in enumerate(hex_regions):
+            row = idx // cols
+            col = idx % cols
+            overlay_regions.append((region, f"{row},{col}"))
+        bench = self._layout.champion_bench
+        overlay_regions.append((bench, "bench"))
+        self._show_debug_regions(overlay_regions)
+
         self._append_message(
             "Debug",
             f"Board crops saved ({len(hex_regions)} cells, "
