@@ -50,7 +50,7 @@ class TFTLayout:
     )
 
     # Board hex grid parameters (player side only — enemy data is in DB)
-    board_hex_origin: tuple[int, int] = (600, 310)
+    board_hex_origin: tuple[int, int] = (600, 430)
     board_hex_cols: int = 7
     board_hex_rows: int = 4
     board_hex_col_width: int = 194
