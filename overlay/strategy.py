@@ -89,6 +89,83 @@ class StrategyEngine:
         """).fetchall()
         return [dict(r) for r in rows]
 
+    def get_augment_scores(self) -> dict[str, float]:
+        """Return {augment_name: tockers_score} for all scored Tocker's augments."""
+        rows = self.conn.execute("""
+            SELECT name, tockers_score FROM augments
+            WHERE in_tockers = 1 AND tockers_score IS NOT NULL
+        """).fetchall()
+        return {r["name"]: r["tockers_score"] for r in rows}
+
+    def score_all_augments(self) -> dict[str, float]:
+        """Score all Tocker's augments via Claude API, write to DB, return scores."""
+        augments = self.get_tocker_augments()
+        if not augments:
+            return {}
+
+        augment_lines = []
+        for a in augments:
+            name = a["name"]
+            desc = a["description"] or ""
+            effects = a["effects"] or ""
+            traits = a["associated_traits"] or ""
+            augment_lines.append(
+                f"- {name}: {desc} | effects: {effects} | traits: {traits}"
+            )
+        augment_block = "\n".join(augment_lines)
+
+        strategy_context = _STRATEGY or ""
+
+        prompt = (
+            "You are scoring augments for TFT Tocker's Trials (PvE mode, Set 16).\n\n"
+            "Scoring priorities (in order of importance):\n"
+            "1. Unused components on bench = 2,500 pts/component/round (biggest driver)\n"
+            "2. Gold interest = 1,000 pts per interest gold per round\n"
+            "3. Surviving champions = 250 pts/champion/round\n"
+            "4. Star-ups = 1,000 pts one-time\n"
+            "5. Close call (win with 1 alive) = 5,000 pts/round\n\n"
+            "Augments that help keep components unbuilt, generate gold, or buff "
+            "champions without items are most valuable. Augments that require building "
+            "items or spending gold are least valuable.\n\n"
+            f"Strategy context:\n{strategy_context}\n\n"
+            f"Augments to score:\n{augment_block}\n\n"
+            "Score each augment 0-100 for Tocker's Trials score optimization.\n"
+            "Output EXACTLY one line per augment in this format:\n"
+            "augment_name|score|brief_reason\n\n"
+            "Output ONLY the scored lines, no other text."
+        )
+
+        client = Anthropic()
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text
+
+        scores: dict[str, float] = {}
+        augment_name_set = {a["name"] for a in augments}
+        api_name_by_name = {a["name"]: a["api_name"] for a in augments}
+
+        for line in text.strip().splitlines():
+            parts = line.split("|")
+            if len(parts) < 2:
+                continue
+            name = parts[0].strip()
+            try:
+                score = float(parts[1].strip())
+            except ValueError:
+                continue
+            if name in augment_name_set:
+                scores[name] = score
+                self.conn.execute(
+                    "UPDATE augments SET tockers_score = ? WHERE api_name = ?",
+                    (score, api_name_by_name[name]),
+                )
+
+        self.conn.commit()
+        return scores
+
     def projected_score(self, current_round: int, num_components: int,
                         gold: int, surviving_units: int) -> dict:
         """Project final 30-round score assuming current state persists."""

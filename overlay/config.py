@@ -45,6 +45,7 @@ class TFTLayout:
     level_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(330, 1193, 210, 25))
     rerolls_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(590, 1260, 60, 25))
     ionia_trait_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(0, 400, 150, 25))
+    selected_augment_text: ScreenRegion = field(default_factory=lambda: ScreenRegion(200, 500, 200, 30))
 
     # Individual shop card name bars (5 slots, 180px to exclude cost icon)
     shop_card_names: list[ScreenRegion] = field(default_factory=lambda: [

@@ -45,7 +45,7 @@ BUILTIN_REGION_NAMES = sorted([
     "augment_select", "board", "champion_bench",
     "dmg_amount", "dmg_bar", "dmg_champ", "dmg_stars",
     "gold_text", "ionia_trait_text", "item_bench", "level_text", "lives_text",
-    "rerolls_text", "round_text", "score_display",
+    "rerolls_text", "round_text", "score_display", "selected_augment_text",
     "shop_card_0", "shop_card_1", "shop_card_2", "shop_card_3", "shop_card_4",
     "trait_panel",
 ])
@@ -329,10 +329,15 @@ class CompanionWindow(QWidget):
         self._ionia_path: str | None = None
         self._ionia_locked: bool = False
         self._picked_augments: list[str] = []  # confirmed picks (up to 3)
-        self._last_augment_choices: list[str] = []  # current dropdown options
         self._all_seen_augments: set[str] = set()  # all unique names seen this augment round
-        self._augments_locked: bool = False  # stop updating combo after pick/6 seen
         self._current_augment_round: str | None = None  # "1-5", "2-5", or "3-5"
+        self._current_choices: list[str] = []  # current 3 detected augment names
+        self._augment_scores: dict[str, float] = {}
+        self._reader: object | None = None  # set externally for right-click scan
+        try:
+            self._augment_scores = engine.get_augment_scores()
+        except Exception:
+            pass
         self._champ_names: list[str] = _load_champion_names()
         self._region_overlay = RegionOverlay()
         self._bridge_server = start_bridge()
@@ -563,21 +568,18 @@ class CompanionWindow(QWidget):
         self._augment_label.setStyleSheet(f"color: {CLR_GOLD};")
         layout.addWidget(self._augment_label)
 
-        # Augment picker row
-        aug_pick_row = QHBoxLayout()
-        self._augment_combo = QComboBox()
-        self._augment_combo.setFont(QFont("Consolas", 11))
-        self._augment_pick_btn = QPushButton("Pick")
-        self._augment_pick_btn.setFixedWidth(50)
-        self._augment_pick_btn.clicked.connect(self._on_augment_pick)
-        self._augment_undo_btn = QPushButton("Undo")
-        self._augment_undo_btn.setFixedWidth(50)
-        self._augment_undo_btn.clicked.connect(self._on_augment_undo)
-        self._augment_undo_btn.setEnabled(False)
-        aug_pick_row.addWidget(self._augment_combo, stretch=1)
-        aug_pick_row.addWidget(self._augment_pick_btn, stretch=0)
-        aug_pick_row.addWidget(self._augment_undo_btn, stretch=0)
-        layout.addLayout(aug_pick_row)
+        # Augment recommendations (ranked by AI score)
+        self._augment_rec_label = QLabel("")
+        self._augment_rec_label.setFont(QFont("Consolas", 11))
+        self._augment_rec_label.setWordWrap(True)
+        self._augment_rec_label.setStyleSheet(f"color: {CLR_GRAY};")
+        layout.addWidget(self._augment_rec_label)
+
+        # Right-click hint
+        hint = QLabel("Right-click to scan picked augment")
+        hint.setFont(QFont("Consolas", 8))
+        hint.setStyleSheet(f"color: {CLR_DIMMED};")
+        layout.addWidget(hint)
 
         return frame
 
@@ -819,21 +821,6 @@ class CompanionWindow(QWidget):
         self._ionia_label.setText("Ionia: --")
         self._ionia_unlock_btn.setEnabled(False)
 
-    def _on_augment_pick(self):
-        text = self._augment_combo.currentText()
-        if text and len(self._picked_augments) < 3:
-            self._picked_augments.append(text)
-            self._augments_locked = True
-            self._augment_undo_btn.setEnabled(True)
-            self._update_augment_display()
-
-    def _on_augment_undo(self):
-        if self._picked_augments:
-            self._picked_augments.pop()
-        self._augment_undo_btn.setEnabled(bool(self._picked_augments))
-        self._augments_locked = False
-        self._update_augment_display()
-
     def _update_augment_display(self):
         if self._picked_augments:
             display = ", ".join(self._picked_augments)
@@ -841,6 +828,36 @@ class CompanionWindow(QWidget):
             self._augment_label.setText(f"Augments ({count}/3): {display}")
         else:
             self._augment_label.setText("Augments: --")
+
+    def _update_augment_recommendations(self):
+        """Update the recommendation label with scored augments."""
+        if not self._current_choices:
+            self._augment_rec_label.setText("")
+            return
+        scored = []
+        for name in self._current_choices:
+            score = self._augment_scores.get(name)
+            scored.append((name, score))
+        # Sort by score descending (None last)
+        scored.sort(key=lambda x: x[1] if x[1] is not None else -1, reverse=True)
+        lines = []
+        for i, (name, score) in enumerate(scored):
+            score_str = f" (score: {score:.0f})" if score is not None else " (unscored)"
+            if i == 0:
+                lines.append(f'<span style="color: {CLR_GOLD};">\u2605 {name}{score_str}</span>')
+            else:
+                lines.append(f'<span style="color: {CLR_GRAY};">  {name}{score_str}</span>')
+        self._augment_rec_label.setText("<br>".join(lines))
+
+    def contextMenuEvent(self, event):
+        """Right-click to scan the picked augment from the game screen."""
+        if self._reader is None or self._last_frame is None:
+            return
+        name = self._reader.read_selected_augment(self._last_frame)
+        if name and len(self._picked_augments) < 3:
+            self._picked_augments.append(name)
+            self._update_augment_display()
+            self._append_message("Scan", f"Detected augment: {name}")
 
     def _on_save_calibration(self):
         if self._layout is None:
@@ -1001,13 +1018,11 @@ class CompanionWindow(QWidget):
             self._ionia_locked = False
             self._ionia_unlock_btn.setEnabled(False)
             self._picked_augments = []
-            self._last_augment_choices = []
             self._all_seen_augments = set()
-            self._augments_locked = False
             self._current_augment_round = None
-            self._augment_combo.clear()
-            self._augment_undo_btn.setEnabled(False)
+            self._current_choices = []
             self._update_augment_display()
+            self._augment_rec_label.setText("")
 
         # Lock Ionia path once read
         if not self._ionia_locked and state.ionia_path:
@@ -1019,32 +1034,25 @@ class CompanionWindow(QWidget):
         locked_indicator = " [locked]" if self._ionia_locked else ""
         self._ionia_label.setText(f"Ionia: {ionia_display}{locked_indicator}")
 
-        # Smart augment locking — only process on actual augment rounds
+        # Smart augment tracking — only process on actual augment rounds
         _AUGMENT_ROUNDS = {"1-5", "2-5", "3-5"}
         is_augment_round = state.round_number in _AUGMENT_ROUNDS
         if state.augment_choices and is_augment_round:
-            # Detect new augment round (reset lock for each of 1-5, 2-5, 3-5)
+            # Detect new augment round (reset for each of 1-5, 2-5, 3-5)
             if state.round_number != self._current_augment_round:
                 self._current_augment_round = state.round_number
                 self._all_seen_augments = set()
-                self._augments_locked = False
 
-            if not self._augments_locked:
-                # Track all unique names seen (initial 3 + rerolled 3 = 6 max)
-                for name in state.augment_choices:
-                    self._all_seen_augments.add(name)
+            # Track all unique names seen (initial 3 + rerolled 3 = 6 max)
+            for name in state.augment_choices:
+                self._all_seen_augments.add(name)
 
-                # Update combo only when choices actually change
-                new_set = set(state.augment_choices)
-                old_set = set(self._last_augment_choices)
-                if new_set != old_set:
-                    self._last_augment_choices = list(state.augment_choices)
-                    self._augment_combo.clear()
-                    self._augment_combo.addItems(state.augment_choices)
-
-                # Lock after seeing 6 unique (reroll exhausted) — keep current 3
-                if len(self._all_seen_augments) >= 6:
-                    self._augments_locked = True
+            # Update recommendations when choices change
+            new_set = set(state.augment_choices)
+            old_set = set(self._current_choices)
+            if new_set != old_set:
+                self._current_choices = list(state.augment_choices)
+                self._update_augment_recommendations()
 
         # Update score dashboard
         self._score_value.setText(f"{projected_score:,}")

@@ -153,7 +153,8 @@ def create_schema(conn):
             description TEXT,
             effects TEXT,           -- JSON blob
             associated_traits TEXT, -- JSON array
-            in_tockers INTEGER NOT NULL DEFAULT 0
+            in_tockers INTEGER NOT NULL DEFAULT 0,
+            tockers_score REAL      -- AI-scored 0-100, NULL = unscored
         );
 
         CREATE TABLE tocker_rounds (

@@ -349,6 +349,18 @@ class GameStateReader:
                 return self.IONIA_PATH_MAP[matches[0]]
         return None
 
+    def read_selected_augment(self, frame: np.ndarray) -> str | None:
+        """OCR the selected-augment tooltip text, fuzzy match against known augments."""
+        crop = _crop(frame, self.layout.selected_augment_text)
+        if np.mean(crop) < 15:
+            return None
+        text = _ocr_text(crop, scale=3, method="adaptive", psm=7)
+        clean = text.strip()
+        if not clean:
+            return None
+        matches = get_close_matches(clean, AUGMENT_NAMES, n=1, cutoff=0.6)
+        return matches[0] if matches else None
+
     def _read_augment_names(self, frame: np.ndarray) -> list[str]:
         """OCR the 3 augment card names, fuzzy matched against known augments."""
         regions = [
